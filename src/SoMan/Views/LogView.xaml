@@ -1,0 +1,26 @@
+<UserControl x:Class="SoMan.Views.LogView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d">
+    <DockPanel Margin="24">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,20">
+            <TextBlock Text="Activity Logs" FontSize="24" FontWeight="Bold" VerticalAlignment="Center" />
+            <Button Style="{StaticResource MaterialDesignOutlinedButton}"
+                    Content="Export" Margin="20,0,0,0"
+                    materialDesign:ButtonAssist.CornerRadius="4" />
+        </StackPanel>
+        <materialDesign:Card Padding="20">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <materialDesign:PackIcon Kind="TextBoxMultipleOutline" Width="64" Height="64"
+                                         HorizontalAlignment="Center" Opacity="0.3" />
+                <TextBlock Text="No activity logs" FontSize="18" HorizontalAlignment="Center"
+                           Margin="0,12,0,4" Opacity="0.5" />
+                <TextBlock Text="Activity will be logged here when tasks are executed"
+                           HorizontalAlignment="Center" Opacity="0.3" />
+            </StackPanel>
+        </materialDesign:Card>
+    </DockPanel>
+</UserControl>

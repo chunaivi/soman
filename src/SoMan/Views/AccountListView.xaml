@@ -1,0 +1,406 @@
+<UserControl x:Class="SoMan.Views.AccountListView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:vm="clr-namespace:SoMan.ViewModels"
+             xmlns:models="clr-namespace:SoMan.Models"
+             d:DataContext="{d:DesignInstance vm:AccountListViewModel}"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <vm:NullOrEmptyToVisibilityConverter x:Key="NullOrEmptyToVis"/>
+    </UserControl.Resources>
+
+    <materialDesign:DialogHost IsOpen="{Binding IsAddDialogOpen}" CloseOnClickAway="False">
+        <materialDesign:DialogHost.DialogContent>
+            <!-- Add/Edit Account Dialog -->
+            <Border MinWidth="500" MaxWidth="600" Padding="24">
+                <StackPanel>
+                    <TextBlock FontSize="20" FontWeight="Bold" Margin="0,0,0,16">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="Add Account"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsEditMode}" Value="True">
+                                        <Setter Property="Text" Value="Edit Account"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <!-- Error -->
+                    <TextBlock Text="{Binding ErrorMessage}" Foreground="IndianRed" Margin="0,0,0,8"
+                               Visibility="{Binding ErrorMessage, Converter={StaticResource NullOrEmptyToVis}}"
+                               TextWrapping="Wrap"/>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Name -->
+                        <TextBox Grid.Row="0" Grid.Column="0"
+                                 materialDesign:HintAssist.Hint="Display Name"
+                                 Text="{Binding FormName, UpdateSourceTrigger=PropertyChanged}"
+                                 Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                 Margin="0,0,0,12"/>
+
+                        <!-- Platform -->
+                        <ComboBox Grid.Row="0" Grid.Column="2"
+                                  materialDesign:HintAssist.Hint="Platform"
+                                  ItemsSource="{Binding PlatformOptions}"
+                                  SelectedItem="{Binding FormPlatform}"
+                                  Style="{StaticResource MaterialDesignOutlinedComboBox}"
+                                  Margin="0,0,0,12"/>
+
+                        <!-- Username -->
+                        <TextBox Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                                 materialDesign:HintAssist.Hint="Username"
+                                 Text="{Binding FormUsername, UpdateSourceTrigger=PropertyChanged}"
+                                 Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                 Margin="0,0,0,12"/>
+
+                        <!-- Cookies JSON -->
+                        <TextBox Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
+                                 materialDesign:HintAssist.Hint="Cookies JSON (paste from browser)"
+                                 Text="{Binding FormCookiesJson, UpdateSourceTrigger=PropertyChanged}"
+                                 Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                 AcceptsReturn="True" TextWrapping="Wrap"
+                                 MinHeight="80" MaxHeight="150"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Margin="0,0,0,12"/>
+
+                        <!-- Proxy -->
+                        <ComboBox Grid.Row="3" Grid.Column="0"
+                                  materialDesign:HintAssist.Hint="Proxy (optional)"
+                                  ItemsSource="{Binding Proxies}"
+                                  SelectedItem="{Binding FormProxy}"
+                                  DisplayMemberPath="Name"
+                                  Style="{StaticResource MaterialDesignOutlinedComboBox}"
+                                  materialDesign:ComboBoxAssist.ShowSelectedItem="True"
+                                  Margin="0,0,0,12"/>
+
+                        <!-- Category -->
+                        <ComboBox Grid.Row="3" Grid.Column="2"
+                                  materialDesign:HintAssist.Hint="Category (optional)"
+                                  ItemsSource="{Binding Categories}"
+                                  SelectedItem="{Binding FormCategory}"
+                                  DisplayMemberPath="Name"
+                                  Style="{StaticResource MaterialDesignOutlinedComboBox}"
+                                  materialDesign:ComboBoxAssist.ShowSelectedItem="True"
+                                  Margin="0,0,0,12"/>
+
+                        <!-- Mode -->
+                        <StackPanel Grid.Row="4" Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <ToggleButton Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                          IsChecked="{Binding FormIsHeadless}" Margin="0,0,8,0"/>
+                            <TextBlock Text="Headless Mode" VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <!-- Notes -->
+                        <TextBox Grid.Row="5" Grid.Column="0" Grid.ColumnSpan="3"
+                                 materialDesign:HintAssist.Hint="Notes (optional)"
+                                 Text="{Binding FormNotes, UpdateSourceTrigger=PropertyChanged}"
+                                 Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                 AcceptsReturn="True" TextWrapping="Wrap"
+                                 MinHeight="50" MaxHeight="80"
+                                 Margin="0,0,0,16"/>
+                    </Grid>
+
+                    <!-- Dialog Buttons -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Cancel" Style="{StaticResource MaterialDesignFlatButton}"
+                                Command="{Binding CancelDialogCommand}" Margin="0,0,8,0"/>
+                        <Button Content="Save" Style="{StaticResource MaterialDesignRaisedButton}"
+                                Command="{Binding SaveAccountCommand}"
+                                materialDesign:ButtonAssist.CornerRadius="4"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </materialDesign:DialogHost.DialogContent>
+
+        <!-- Main Content -->
+        <DockPanel Margin="24">
+            <!-- Header -->
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
+                <TextBlock Text="Accounts" FontSize="24" FontWeight="Bold" VerticalAlignment="Center"/>
+                <TextBlock VerticalAlignment="Center" Margin="16,0,0,0" Opacity="0.5">
+                    <Run Text="{Binding TotalCount, Mode=OneWay}"/><Run Text=" total, "/><Run Text="{Binding ActiveCount, Mode=OneWay}"/><Run Text=" active"/>
+                </TextBlock>
+                <Button Style="{StaticResource MaterialDesignRaisedButton}"
+                        Content="+ Add Account" Margin="20,0,0,0"
+                        Command="{Binding OpenAddDialogCommand}"
+                        materialDesign:ButtonAssist.CornerRadius="4"/>
+            </StackPanel>
+
+            <!-- Browser Action Bar -->
+            <materialDesign:Card DockPanel.Dock="Top" Padding="8,6" Margin="0,0,0,8">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                        <Button Style="{StaticResource MaterialDesignRaisedButton}"
+                                Content="Open Browser" Margin="0,0,8,0"
+                                Command="{Binding OpenBrowserCommand}"
+                                materialDesign:ButtonAssist.CornerRadius="4"
+                                Background="#1B5E20"/>
+                        <Button Style="{StaticResource MaterialDesignOutlinedButton}"
+                                Content="Close Browser" Margin="0,0,8,0"
+                                Command="{Binding CloseBrowserCommand}"
+                                materialDesign:ButtonAssist.CornerRadius="4"/>
+                        <Button Style="{StaticResource MaterialDesignOutlinedButton}"
+                                Content="Validate Session" Margin="0,0,8,0"
+                                Command="{Binding ValidateSessionCommand}"
+                                materialDesign:ButtonAssist.CornerRadius="4"/>
+                        <Button Style="{StaticResource MaterialDesignFlatButton}"
+                                Content="Close All" Margin="0,0,8,0"
+                                Command="{Binding CloseAllBrowsersCommand}"
+                                Foreground="IndianRed"/>
+                        <TextBlock VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.6">
+                            <Run Text="Active browsers: "/><Run Text="{Binding ActiveBrowsers, Mode=OneWay}"/>
+                        </TextBlock>
+                    </StackPanel>
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding BrowserStatus}"
+                               VerticalAlignment="Center" HorizontalAlignment="Right"
+                               Foreground="{DynamicResource PrimaryHueMidBrush}"
+                               TextTrimming="CharacterEllipsis" MaxWidth="400"/>
+                </DockPanel>
+            </materialDesign:Card>
+
+            <!-- Filter Bar -->
+            <materialDesign:Card DockPanel.Dock="Top" Padding="12" Margin="0,0,0,12">
+                <StackPanel Orientation="Horizontal">
+                    <TextBox materialDesign:HintAssist.Hint="Search..."
+                             Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                             Width="200" Margin="0,0,12,0"/>
+
+                    <ComboBox materialDesign:HintAssist.Hint="Platform"
+                              ItemsSource="{Binding PlatformOptions}"
+                              SelectedItem="{Binding FilterPlatform}"
+                              Width="130" Margin="0,0,12,0"
+                              materialDesign:ComboBoxAssist.ShowSelectedItem="True"/>
+
+                    <ComboBox materialDesign:HintAssist.Hint="Category"
+                              ItemsSource="{Binding Categories}"
+                              SelectedItem="{Binding FilterCategory}"
+                              DisplayMemberPath="Name"
+                              Width="150" Margin="0,0,12,0"
+                              materialDesign:ComboBoxAssist.ShowSelectedItem="True"/>
+
+                    <ComboBox materialDesign:HintAssist.Hint="Status"
+                              ItemsSource="{Binding StatusOptions}"
+                              SelectedItem="{Binding FilterStatus}"
+                              Width="140" Margin="0,0,12,0"
+                              materialDesign:ComboBoxAssist.ShowSelectedItem="True"/>
+
+                    <Button Style="{StaticResource MaterialDesignIconButton}"
+                            Command="{Binding ClearFilterCommand}"
+                            ToolTip="Clear filters">
+                        <materialDesign:PackIcon Kind="FilterRemove"/>
+                    </Button>
+                </StackPanel>
+            </materialDesign:Card>
+
+            <!-- Account List / Empty State -->
+            <Grid>
+                <!-- Empty State -->
+                <materialDesign:Card Padding="40">
+                    <materialDesign:Card.Style>
+                        <Style TargetType="materialDesign:Card" BasedOn="{StaticResource {x:Type materialDesign:Card}}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Accounts.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </materialDesign:Card.Style>
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <materialDesign:PackIcon Kind="AccountMultiplePlus" Width="64" Height="64"
+                                                 HorizontalAlignment="Center" Opacity="0.3"/>
+                        <TextBlock Text="No accounts found" FontSize="18" HorizontalAlignment="Center"
+                                   Margin="0,12,0,4" Opacity="0.5"/>
+                        <TextBlock Text="Click '+ Add Account' to add your first account, or adjust your filters"
+                                   HorizontalAlignment="Center" Opacity="0.3"/>
+                    </StackPanel>
+                </materialDesign:Card>
+
+                <!-- Account DataGrid -->
+                <DataGrid ItemsSource="{Binding Accounts}"
+                          SelectedItem="{Binding SelectedAccount}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          IsReadOnly="False"
+                          SelectionMode="Extended"
+                          materialDesign:DataGridAssist.ColumnHeaderPadding="12 8"
+                          materialDesign:DataGridAssist.CellPadding="12 8"
+                          HeadersVisibility="Column"
+                          VerticalScrollBarVisibility="Auto">
+                    <DataGrid.Style>
+                        <Style TargetType="DataGrid" BasedOn="{StaticResource MaterialDesignDataGrid}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Accounts.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.Style>
+                    <DataGrid.Columns>
+                        <DataGridCheckBoxColumn Binding="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}" Width="40"
+                                                ElementStyle="{StaticResource MaterialDesignDataGridCheckBoxColumnStyle}"
+                                                EditingElementStyle="{StaticResource MaterialDesignDataGridCheckBoxColumnEditingStyle}">
+                            <DataGridCheckBoxColumn.Header>
+                                <CheckBox IsChecked="{Binding DataContext.IsAllSelected, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                          Style="{StaticResource MaterialDesignCheckBox}"/>
+                            </DataGridCheckBoxColumn.Header>
+                        </DataGridCheckBoxColumn>
+                        <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
+                        <DataGridTextColumn Header="Platform" Binding="{Binding Platform}" Width="90"/>
+                        <DataGridTextColumn Header="Username" Binding="{Binding Username}" Width="*"/>
+                        <DataGridTemplateColumn Header="Category" Width="120">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <ItemsControl ItemsSource="{Binding Categories}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,6,0">
+                                                    <Ellipse Width="10" Height="10" Margin="0,0,4,0"
+                                                             Fill="{Binding AccountCategory.Color}"/>
+                                                    <TextBlock Text="{Binding AccountCategory.Name}" FontSize="12"
+                                                               VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="Status" Width="110">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <materialDesign:Chip Content="{Binding Status}" FontSize="11">
+                                        <materialDesign:Chip.Style>
+                                            <Style TargetType="materialDesign:Chip" BasedOn="{StaticResource {x:Type materialDesign:Chip}}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Status}" Value="Active">
+                                                        <Setter Property="Background" Value="#1B5E20"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Status}" Value="CookiesExpired">
+                                                        <Setter Property="Background" Value="#E65100"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Status}" Value="Error">
+                                                        <Setter Property="Background" Value="#B71C1C"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Status}" Value="Disabled">
+                                                        <Setter Property="Background" Value="#424242"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </materialDesign:Chip.Style>
+                                    </materialDesign:Chip>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="Browser" Width="75">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <Ellipse Width="10" Height="10" Margin="0,0,6,0">
+                                            <Ellipse.Style>
+                                                <Style TargetType="Ellipse">
+                                                    <Setter Property="Fill" Value="#616161"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsBrowserRunning}" Value="True">
+                                                            <Setter Property="Fill" Value="#4CAF50"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Ellipse.Style>
+                                        </Ellipse>
+                                        <TextBlock VerticalAlignment="Center" FontSize="11">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="Off"/>
+                                                    <Setter Property="Opacity" Value="0.4"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsBrowserRunning}" Value="True">
+                                                            <Setter Property="Text" Value="On"/>
+                                                            <Setter Property="Opacity" Value="1"/>
+                                                            <Setter Property="Foreground" Value="#4CAF50"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="Proxy" Binding="{Binding ProxyConfig.Name}" Width="120"/>
+                        <DataGridTextColumn Header="Mode" Width="80">
+                            <DataGridTextColumn.Binding>
+                                <Binding Path="IsHeadless" StringFormat="{}">
+                                    <Binding.Converter>
+                                        <vm:BoolToModeConverter/>
+                                    </Binding.Converter>
+                                </Binding>
+                            </DataGridTextColumn.Binding>
+                        </DataGridTextColumn>
+                        <DataGridTemplateColumn Header="Actions" Width="120">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button Style="{StaticResource MaterialDesignIconForegroundButton}"
+                                                Width="28" Height="28" Padding="2"
+                                                Command="{Binding DataContext.OpenEditDialogCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                ToolTip="Edit">
+                                            <materialDesign:PackIcon Kind="Pencil" Width="16" Height="16"/>
+                                        </Button>
+                                        <Button Style="{StaticResource MaterialDesignIconForegroundButton}"
+                                                Width="28" Height="28" Padding="2"
+                                                Command="{Binding DataContext.ToggleStatusCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                ToolTip="Toggle Status">
+                                            <materialDesign:PackIcon Kind="PowerStandby" Width="16" Height="16"/>
+                                        </Button>
+                                        <Button Style="{StaticResource MaterialDesignIconForegroundButton}"
+                                                Width="28" Height="28" Padding="2" Foreground="IndianRed"
+                                                Command="{Binding DataContext.DeleteAccountCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                ToolTip="Delete">
+                                            <materialDesign:PackIcon Kind="Delete" Width="16" Height="16"/>
+                                        </Button>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <!-- Loading overlay -->
+                <Border Background="#80000000"
+                        Visibility="{Binding IsLoading, Converter={StaticResource BoolToVis}}">
+                    <ProgressBar Style="{StaticResource MaterialDesignCircularProgressBar}"
+                                 IsIndeterminate="True" Width="40" Height="40"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+            </Grid>
+        </DockPanel>
+    </materialDesign:DialogHost>
+</UserControl>

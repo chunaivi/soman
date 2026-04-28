@@ -1,0 +1,176 @@
+<UserControl x:Class="SoMan.Views.TaskListView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d">
+    <DockPanel Margin="24">
+        <!-- Header -->
+        <TextBlock DockPanel.Dock="Top" Text="Tasks" FontSize="24" FontWeight="Bold" Margin="0,0,0,16"/>
+
+        <!-- Control Bar -->
+        <materialDesign:Card DockPanel.Dock="Top" Padding="16" Margin="0,0,0,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <ComboBox Grid.Column="0" materialDesign:HintAssist.Hint="Template"
+                          ItemsSource="{Binding Templates}"
+                          SelectedItem="{Binding SelectedTemplate}"
+                          DisplayMemberPath="Name"
+                          Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,12,0"/>
+
+                <ComboBox Grid.Column="1" materialDesign:HintAssist.Hint="Account"
+                          ItemsSource="{Binding Accounts}"
+                          SelectedItem="{Binding SelectedAccount}"
+                          DisplayMemberPath="Name"
+                          Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,12,0"/>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource MaterialDesignRaisedButton}"
+                            Content="▶ Run" Margin="0,0,8,0"
+                            Command="{Binding RunNowCommand}"
+                            materialDesign:ButtonAssist.CornerRadius="4"/>
+                    <Button Style="{StaticResource MaterialDesignOutlinedButton}"
+                            Content="Run All" Margin="0,0,8,0"
+                            Command="{Binding RunForAllAccountsCommand}"
+                            materialDesign:ButtonAssist.CornerRadius="4" ToolTip="Run on all open browsers"/>
+                    <Button Style="{StaticResource MaterialDesignOutlinedButton}"
+                            Content="Stop All" Foreground="IndianRed"
+                            Command="{Binding StopAllTasksCommand}"
+                            materialDesign:ButtonAssist.CornerRadius="4"/>
+                </StackPanel>
+            </Grid>
+        </materialDesign:Card>
+
+        <!-- Status -->
+        <TextBlock DockPanel.Dock="Top" Text="{Binding StatusMessage}" Margin="0,0,0,8"
+                   FontSize="12" Opacity="0.7"
+                   Visibility="{Binding StatusMessage, Converter={StaticResource NullToVisibility}}"/>
+
+        <!-- Running Tasks -->
+        <materialDesign:Card DockPanel.Dock="Top" Padding="12" Margin="0,0,0,12"
+                             Visibility="{Binding RunningTasks.Count, Converter={StaticResource CountToVisibility}}">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Running Tasks" FontSize="14" FontWeight="Medium" Margin="0,0,0,8"/>
+                <DataGrid ItemsSource="{Binding RunningTasks}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          IsReadOnly="True"
+                          materialDesign:DataGridAssist.ColumnHeaderPadding="8 4"
+                          materialDesign:DataGridAssist.CellPadding="8 4"
+                          HeadersVisibility="Column"
+                          Style="{StaticResource MaterialDesignDataGrid}">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="ID" Binding="{Binding ExecutionId}" Width="50"/>
+                        <DataGridTextColumn Header="Account" Binding="{Binding AccountName}" Width="120"/>
+                        <DataGridTextColumn Header="Template" Binding="{Binding TemplateName}" Width="120"/>
+                        <DataGridTextColumn Header="Progress" Binding="{Binding Progress}" Width="80"/>
+                        <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="80"/>
+                        <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*"/>
+                        <DataGridTemplateColumn Header="Actions" Width="120">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <!-- Pause: visible when Running (not paused) -->
+                                        <Button ToolTip="Pause"
+                                                Command="{Binding DataContext.PauseTaskCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"
+                                                Width="32" Height="32" Padding="0">
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource MaterialDesignIconButton}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsPaused}" Value="True">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                            <materialDesign:PackIcon Kind="Pause" Width="18" Height="18" Foreground="#FFA726"/>
+                                        </Button>
+                                        <!-- Resume: visible when Paused -->
+                                        <Button ToolTip="Resume"
+                                                Command="{Binding DataContext.ResumeTaskCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"
+                                                Width="32" Height="32" Padding="0">
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource MaterialDesignIconButton}">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsPaused}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                            <materialDesign:PackIcon Kind="Play" Width="18" Height="18" Foreground="#66BB6A"/>
+                                        </Button>
+                                        <!-- Stop -->
+                                        <Button ToolTip="Stop"
+                                                Command="{Binding DataContext.StopTaskCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"
+                                                Width="32" Height="32" Padding="0">
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource MaterialDesignIconButton}"/>
+                                            </Button.Style>
+                                            <materialDesign:PackIcon Kind="Stop" Width="18" Height="18" Foreground="#EF5350"/>
+                                        </Button>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </materialDesign:Card>
+
+        <!-- Execution History -->
+        <DockPanel>
+            <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
+                <TextBlock Text="Execution History" FontSize="16" FontWeight="Medium" VerticalAlignment="Center"/>
+                <Button Content="Clear All" HorizontalAlignment="Right"
+                        Style="{StaticResource MaterialDesignOutlinedButton}"
+                        Command="{Binding ClearHistoryCommand}"
+                        Foreground="IndianRed"
+                        materialDesign:ButtonAssist.CornerRadius="4"
+                        Height="28" FontSize="11" Padding="12,0"/>
+            </Grid>
+            <DataGrid ItemsSource="{Binding ExecutionHistory}"
+                      AutoGenerateColumns="False"
+                      CanUserAddRows="False"
+                      IsReadOnly="True"
+                      materialDesign:DataGridAssist.ColumnHeaderPadding="8 4"
+                      materialDesign:DataGridAssist.CellPadding="8 4"
+                      HeadersVisibility="Column"
+                      Style="{StaticResource MaterialDesignDataGrid}">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="50"/>
+                    <DataGridTextColumn Header="Template" Binding="{Binding ActionTemplate.Name}" Width="120"/>
+                    <DataGridTextColumn Header="Account" Binding="{Binding Account.Name}" Width="120"/>
+                    <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="80"/>
+                    <DataGridTextColumn Header="Steps" Binding="{Binding TotalSteps}" Width="50"/>
+                    <DataGridTextColumn Header="Started" Binding="{Binding StartedAt, StringFormat='{}{0:MM/dd HH:mm}'}" Width="110"/>
+                    <DataGridTextColumn Header="Completed" Binding="{Binding CompletedAt, StringFormat='{}{0:MM/dd HH:mm}'}" Width="110"/>
+                    <DataGridTextColumn Header="Error" Binding="{Binding ErrorMessage}" Width="*"/>
+                    <DataGridTemplateColumn Header="" Width="40">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button ToolTip="Delete"
+                                        Command="{Binding DataContext.DeleteExecutionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding}"
+                                        Width="28" Height="28" Padding="0"
+                                        Style="{StaticResource MaterialDesignIconButton}">
+                                    <materialDesign:PackIcon Kind="Delete" Width="16" Height="16" Foreground="#EF5350"/>
+                                </Button>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+        </DockPanel>
+    </DockPanel>
+</UserControl>

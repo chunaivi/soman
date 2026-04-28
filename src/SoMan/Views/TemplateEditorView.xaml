@@ -1,0 +1,368 @@
+<UserControl x:Class="SoMan.Views.TemplateEditorView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:vm="clr-namespace:SoMan.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d">
+    <Grid>
+        <!-- Main Content -->
+        <Grid Margin="24">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="300"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Left Panel: Template List -->
+            <DockPanel Grid.Column="0">
+                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <TextBlock Text="Templates" FontSize="24" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <Button Style="{StaticResource MaterialDesignRaisedButton}"
+                                Content="+ New" Margin="12,0,0,0"
+                                Command="{Binding OpenNewTemplateDialogCommand}"
+                                materialDesign:ButtonAssist.CornerRadius="4"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <ListBox ItemsSource="{Binding Templates}"
+                         SelectedItem="{Binding SelectedTemplate}"
+                         Style="{StaticResource MaterialDesignNavigationPrimaryListBox}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="4">
+                                <TextBlock Text="{Binding Name}" FontWeight="Medium" FontSize="14"/>
+                                <StackPanel Orientation="Horizontal" Opacity="0.6">
+                                    <TextBlock Text="{Binding Platform}" FontSize="11" Margin="0,0,8,0"/>
+                                    <TextBlock Text="{Binding Steps.Count, StringFormat='{}{0} steps'}" FontSize="11"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+
+            <!-- Right Panel: Template Detail + Steps -->
+            <DockPanel Grid.Column="2">
+                <!-- Template Header -->
+                <materialDesign:Card DockPanel.Dock="Top" Padding="16" Margin="0,0,0,12">
+                    <Grid>
+                        <StackPanel Visibility="{Binding SelectedTemplate, Converter={StaticResource NullToVisibility}}">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <TextBlock Text="{Binding SelectedTemplate.Name}" FontSize="20" FontWeight="Bold" VerticalAlignment="Center"/>
+                                <materialDesign:Chip Content="{Binding SelectedTemplate.Platform}" Margin="12,0,0,0" FontSize="11"/>
+                            </StackPanel>
+                            <TextBlock Text="{Binding SelectedTemplate.Description}" Opacity="0.6" TextWrapping="Wrap"
+                                       Visibility="{Binding SelectedTemplate.Description, Converter={StaticResource NullToVisibility}}"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                <Button Style="{StaticResource MaterialDesignOutlinedButton}" Content="Edit"
+                                        Command="{Binding OpenEditTemplateDialogCommand}"
+                                        materialDesign:ButtonAssist.CornerRadius="4" Margin="0,0,8,0"/>
+                                <Button Style="{StaticResource MaterialDesignOutlinedButton}" Content="Duplicate"
+                                        Command="{Binding DuplicateTemplateCommand}"
+                                        materialDesign:ButtonAssist.CornerRadius="4" Margin="0,0,8,0"/>
+                                <Button Style="{StaticResource MaterialDesignOutlinedButton}" Content="Delete"
+                                        Foreground="IndianRed"
+                                        Command="{Binding DeleteTemplateCommand}"
+                                        materialDesign:ButtonAssist.CornerRadius="4"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <TextBlock Text="Select a template from the list"
+                                   Opacity="0.4" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Visibility="{Binding SelectedTemplate, Converter={StaticResource InverseNullToVisibility}}"/>
+                    </Grid>
+                </materialDesign:Card>
+
+                <!-- Steps Section -->
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Action Steps" FontSize="16" FontWeight="Medium" VerticalAlignment="Center"/>
+                        <Button Style="{StaticResource MaterialDesignRaisedButton}"
+                                Content="+ Add Step" Margin="12,0,0,0"
+                                Command="{Binding OpenAddStepDialogCommand}"
+                                materialDesign:ButtonAssist.CornerRadius="4"/>
+                        <TextBlock Text="{Binding StatusMessage}" Margin="16,0,0,0"
+                                   VerticalAlignment="Center" Opacity="0.7" FontSize="12"/>
+                    </StackPanel>
+
+                    <DataGrid ItemsSource="{Binding Steps}"
+                              SelectedItem="{Binding SelectedStep}"
+                              AutoGenerateColumns="False"
+                              CanUserAddRows="False"
+                              IsReadOnly="True"
+                              materialDesign:DataGridAssist.ColumnHeaderPadding="12 8"
+                              materialDesign:DataGridAssist.CellPadding="12 8"
+                              HeadersVisibility="Column"
+                              Style="{StaticResource MaterialDesignDataGrid}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="#" Binding="{Binding Order}" Width="40"/>
+                            <DataGridTextColumn Header="Action" Binding="{Binding ActionType}" Width="120"/>
+                            <DataGridTextColumn Header="Parameters" Binding="{Binding ParametersJson}" Width="*"/>
+                            <DataGridTextColumn Header="Delay Min" Binding="{Binding DelayMinMs, StringFormat='{}{0}ms'}" Width="80"/>
+                            <DataGridTextColumn Header="Delay Max" Binding="{Binding DelayMaxMs, StringFormat='{}{0}ms'}" Width="80"/>
+                            <DataGridTemplateColumn Header="Actions" Width="140">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button Style="{StaticResource MaterialDesignIconForegroundButton}"
+                                                    Width="28" Height="28" Padding="2" ToolTip="Move Up"
+                                                    Command="{Binding DataContext.MoveStepUpCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="{Binding}">
+                                                <materialDesign:PackIcon Kind="ArrowUp" Width="16" Height="16"/>
+                                            </Button>
+                                            <Button Style="{StaticResource MaterialDesignIconForegroundButton}"
+                                                    Width="28" Height="28" Padding="2" ToolTip="Move Down"
+                                                    Command="{Binding DataContext.MoveStepDownCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="{Binding}">
+                                                <materialDesign:PackIcon Kind="ArrowDown" Width="16" Height="16"/>
+                                            </Button>
+                                            <Button Style="{StaticResource MaterialDesignIconForegroundButton}"
+                                                    Width="28" Height="28" Padding="2" ToolTip="Edit"
+                                                    Command="{Binding DataContext.OpenEditStepDialogCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}">
+                                                <materialDesign:PackIcon Kind="Pencil" Width="16" Height="16"/>
+                                            </Button>
+                                            <Button Style="{StaticResource MaterialDesignIconForegroundButton}"
+                                                    Width="28" Height="28" Padding="2" ToolTip="Delete" Foreground="IndianRed"
+                                                    Command="{Binding DataContext.DeleteStepCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}">
+                                                <materialDesign:PackIcon Kind="Delete" Width="16" Height="16"/>
+                                            </Button>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </DockPanel>
+            </DockPanel>
+        </Grid>
+
+        <!-- Dialog Overlay (same visual tree — bindings work) -->
+        <Grid Visibility="{Binding IsDialogOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <!-- Dark backdrop -->
+            <Border Background="#88000000" MouseDown="Backdrop_MouseDown"/>
+
+            <!-- Template Dialog -->
+            <materialDesign:Card Padding="24" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                 MaxWidth="440"
+                                 Visibility="{Binding IsTemplateDialogOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <StackPanel Width="380">
+                    <TextBlock FontSize="18" FontWeight="Bold" Margin="0,0,0,16">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="New Template"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsEditingTemplate}" Value="True">
+                                        <Setter Property="Text" Value="Edit Template"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <TextBox materialDesign:HintAssist.Hint="Template Name"
+                             Text="{Binding FormTemplateName, UpdateSourceTrigger=PropertyChanged}"
+                             Style="{StaticResource MaterialDesignOutlinedTextBox}" Margin="0,0,0,12"/>
+
+                    <ComboBox materialDesign:HintAssist.Hint="Platform"
+                              ItemsSource="{Binding PlatformOptions}"
+                              SelectedItem="{Binding FormTemplatePlatform}"
+                              Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,0,12"/>
+
+                    <TextBox materialDesign:HintAssist.Hint="Description (optional)"
+                             Text="{Binding FormTemplateDescription, UpdateSourceTrigger=PropertyChanged}"
+                             Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                             AcceptsReturn="True" MinHeight="60" Margin="0,0,0,16"/>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Cancel" Style="{StaticResource MaterialDesignFlatButton}"
+                                Command="{Binding CancelDialogCommand}" Margin="0,0,8,0"/>
+                        <Button Content="Save" Style="{StaticResource MaterialDesignRaisedButton}"
+                                Command="{Binding SaveTemplateCommand}"
+                                Click="SaveTemplate_Click"
+                                materialDesign:ButtonAssist.CornerRadius="4"/>
+                    </StackPanel>
+                </StackPanel>
+            </materialDesign:Card>
+
+            <!-- Step Dialog -->
+            <materialDesign:Card Padding="24" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                 MaxWidth="500"
+                                 Visibility="{Binding IsStepDialogOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <StackPanel Width="420">
+                    <TextBlock FontSize="18" FontWeight="Bold" Margin="0,0,0,16">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="Add Step"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsEditingStep}" Value="True">
+                                        <Setter Property="Text" Value="Edit Step"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <ComboBox materialDesign:HintAssist.Hint="Action Type"
+                              ItemsSource="{Binding ActionTypeOptions}"
+                              SelectedItem="{Binding FormStepActionType}"
+                              Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,0,12"/>
+
+                    <!-- Count (Like, Comment, Follow, Repost) -->
+                    <TextBox materialDesign:HintAssist.Hint="Count"
+                             Text="{Binding ParamCount, UpdateSourceTrigger=PropertyChanged}"
+                             Margin="0,0,0,12">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource MaterialDesignOutlinedTextBox}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="Like">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="Comment">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="Follow">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="Repost">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+
+                    <!-- Duration (ScrollFeed) -->
+                    <TextBox materialDesign:HintAssist.Hint="Duration (seconds)"
+                             Text="{Binding ParamDurationSeconds, UpdateSourceTrigger=PropertyChanged}"
+                             Margin="0,0,0,12">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource MaterialDesignOutlinedTextBox}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="ScrollFeed">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+
+                    <!-- Texts (Comment) -->
+                    <TextBox materialDesign:HintAssist.Hint="Comment texts (separate with |)"
+                             Text="{Binding ParamTexts, UpdateSourceTrigger=PropertyChanged}"
+                             Margin="0,0,0,12"
+                             AcceptsReturn="True" MinHeight="60">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource MaterialDesignOutlinedTextBox}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="Comment">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+
+                    <!-- Username (Follow, Unfollow, ViewProfile) -->
+                    <TextBox materialDesign:HintAssist.Hint="Username (without @)"
+                             Text="{Binding ParamUsername, UpdateSourceTrigger=PropertyChanged}"
+                             Margin="0,0,0,12">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource MaterialDesignOutlinedTextBox}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="Follow">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="Unfollow">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="ViewProfile">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+
+                    <!-- Post Text (CreatePost) -->
+                    <TextBox materialDesign:HintAssist.Hint="Post text"
+                             Text="{Binding ParamPostText, UpdateSourceTrigger=PropertyChanged}"
+                             Margin="0,0,0,12"
+                             AcceptsReturn="True" MinHeight="60">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource MaterialDesignOutlinedTextBox}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="CreatePost">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+
+                    <!-- Search Keyword -->
+                    <TextBox materialDesign:HintAssist.Hint="Search keyword"
+                             Text="{Binding ParamKeyword, UpdateSourceTrigger=PropertyChanged}"
+                             Margin="0,0,0,12">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource MaterialDesignOutlinedTextBox}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="Search">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+
+                    <!-- Interact toggle (Search) -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="Search">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <ToggleButton Style="{StaticResource MaterialDesignSwitchToggleButton}"
+                                      IsChecked="{Binding ParamInteract}" Margin="0,0,8,0"/>
+                        <TextBlock Text="Interact with search results" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- Delay settings -->
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0" materialDesign:HintAssist.Hint="Delay Min (ms)"
+                                 Text="{Binding FormStepDelayMin, UpdateSourceTrigger=PropertyChanged}"
+                                 Style="{StaticResource MaterialDesignOutlinedTextBox}"/>
+                        <TextBox Grid.Column="2" materialDesign:HintAssist.Hint="Delay Max (ms)"
+                                 Text="{Binding FormStepDelayMax, UpdateSourceTrigger=PropertyChanged}"
+                                 Style="{StaticResource MaterialDesignOutlinedTextBox}"/>
+                    </Grid>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Cancel" Style="{StaticResource MaterialDesignFlatButton}"
+                                Command="{Binding CancelDialogCommand}" Margin="0,0,8,0"/>
+                        <Button Content="Save" Style="{StaticResource MaterialDesignRaisedButton}"
+                                Command="{Binding SaveStepCommand}"
+                                materialDesign:ButtonAssist.CornerRadius="4"/>
+                    </StackPanel>
+                </StackPanel>
+            </materialDesign:Card>
+        </Grid>
+    </Grid>
+</UserControl>
