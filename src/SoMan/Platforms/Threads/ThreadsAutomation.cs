@@ -111,38 +111,31 @@ public class ThreadsAutomation
         int count = GetInt(p, "count", 2);
         string[] texts = GetStringArray(p, "texts", new[] { "Nice!", "Great post! 🔥", "Interesting! 👍" });
 
-        // If on a post detail page, comment there directly
+        // If on a post detail page, comment there directly.
         if (page.Url.Contains("/post/"))
         {
             var rng = new Random();
             var text = texts[rng.Next(texts.Length)];
-            // Coba cari tombol reply secara global jika tidak ada article
             var posts = page.Locator(ThreadsSelectors.PostArticle);
             int total = await posts.CountAsync();
+
+            // When no <article> is rendered (e.g. the post detail uses a different
+            // container), fall back to scoping at <body>. CommentOnPostAsync will
+            // still find the global Reply button and run the same robust composer
+            // flow (real keystrokes + dialog-scoped Post button + enable wait).
+            ILocator scope = total > 0 ? posts.First : page.Locator("body");
+
             bool ok = false;
-            if (total > 0)
+            try
             {
-                ok = await _actions.CommentOnPostAsync(page, posts.First, text, ct);
+                ok = await _actions.CommentOnPostAsync(page, scope, text, ct);
             }
-            else
+            catch
             {
-                // Fallback: cari tombol reply secara global
-                var replyBtn = page.Locator(ThreadsSelectors.ReplyButton).First;
-                if (await replyBtn.CountAsync() > 0)
-                {
-                    await replyBtn.ClickAsync();
-                    await _delay.WaitAsync(1500, 3000, ct);
-                    var textArea = page.Locator(ThreadsSelectors.ReplyTextArea).Last;
-                    await textArea.WaitForAsync(new() { Timeout = ThreadsConstants.ElementWaitTimeout });
-                    await textArea.FillAsync(text);
-                    await _delay.WaitAsync(1000, 2000, ct);
-                    var postBtn = page.Locator(ThreadsSelectors.ReplyPostButton).First;
-                    await postBtn.ClickAsync();
-                    await _delay.WaitAsync(2000, 4000, ct);
-                    ok = true;
-                }
+                ok = false;
             }
-            await _logger.LogAsync(accountId, ActionType.Comment, page.Url, 
+
+            await _logger.LogAsync(accountId, ActionType.Comment, page.Url,
                 ok ? ActionResult.Success : ActionResult.Failed, ok ? $"Commented: {text}" : "Failed to comment");
             return (ok, ok ? "Commented on opened post." : "Failed to comment.");
         }
