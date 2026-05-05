@@ -5,47 +5,232 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d">
-    <DockPanel Margin="24">
-        <!-- Header -->
-        <TextBlock DockPanel.Dock="Top" Text="Tasks" FontSize="24" FontWeight="Bold" Margin="0,0,0,16"/>
+    <Grid>
+        <DockPanel Margin="24">
+            <!-- Header -->
+            <TextBlock DockPanel.Dock="Top" Text="Tasks" FontSize="24" FontWeight="Bold" Margin="0,0,0,16"/>
 
-        <!-- Control Bar -->
-        <materialDesign:Card DockPanel.Dock="Top" Padding="16" Margin="0,0,0,12">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+            <!-- Control Bar -->
+            <materialDesign:Card DockPanel.Dock="Top" Padding="16" Margin="0,0,0,12">
+                <StackPanel>
+                    <!-- Row 1: Template + Account picker + Run buttons -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
 
-                <ComboBox Grid.Column="0" materialDesign:HintAssist.Hint="Template"
-                          ItemsSource="{Binding Templates}"
-                          SelectedItem="{Binding SelectedTemplate}"
-                          DisplayMemberPath="Name"
-                          Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,12,0"/>
+                        <ComboBox Grid.Column="0" materialDesign:HintAssist.Hint="Template"
+                                  ItemsSource="{Binding Templates}"
+                                  SelectedItem="{Binding SelectedTemplate}"
+                                  DisplayMemberPath="Name"
+                                  Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,12,0"/>
 
-                <ComboBox Grid.Column="1" materialDesign:HintAssist.Hint="Account"
-                          ItemsSource="{Binding Accounts}"
-                          SelectedItem="{Binding SelectedAccount}"
-                          DisplayMemberPath="Name"
-                          Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,12,0"/>
+                        <!-- Account multi-select picker — toggle drives popup visibility.
+                             Plain ToggleButton (no MD style) so it looks like an outlined combo. -->
+                        <ToggleButton x:Name="AccountPickerToggle" Grid.Column="1"
+                                      Margin="0,0,12,0" Padding="12,0" Height="40"
+                                      HorizontalContentAlignment="Stretch"
+                                      Background="Transparent"
+                                      BorderBrush="{DynamicResource MaterialDesignDivider}"
+                                      BorderThickness="1"
+                                      IsChecked="{Binding IsAccountPickerOpen, Mode=TwoWay}"
+                                      ToolTip="Pick accounts and/or categories">
+                            <Grid HorizontalAlignment="Stretch" Width="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=ToggleButton}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding AccountSelectionSummary}"
+                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                           Margin="4,0,0,0"/>
+                                <materialDesign:PackIcon Grid.Column="1" Kind="MenuDown" VerticalAlignment="Center"
+                                                         Margin="0,0,4,0"/>
+                            </Grid>
+                        </ToggleButton>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Style="{StaticResource MaterialDesignRaisedButton}"
-                            Content="▶ Run" Margin="0,0,8,0"
-                            Command="{Binding RunNowCommand}"
-                            materialDesign:ButtonAssist.CornerRadius="4"/>
-                    <Button Style="{StaticResource MaterialDesignOutlinedButton}"
-                            Content="Run All" Margin="0,0,8,0"
-                            Command="{Binding RunForAllAccountsCommand}"
-                            materialDesign:ButtonAssist.CornerRadius="4" ToolTip="Run on all open browsers"/>
-                    <Button Style="{StaticResource MaterialDesignOutlinedButton}"
-                            Content="Stop All" Foreground="IndianRed"
-                            Command="{Binding StopAllTasksCommand}"
-                            materialDesign:ButtonAssist.CornerRadius="4"/>
+                        <!-- Popup floats over the toggle and contains the Categories/Accounts tabs -->
+                        <Popup PlacementTarget="{Binding ElementName=AccountPickerToggle}"
+                               Placement="Bottom"
+                               IsOpen="{Binding IsAccountPickerOpen, Mode=TwoWay}"
+                               StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                            <materialDesign:Card Width="420" Padding="0" Margin="0,4,0,0">
+                                <DockPanel>
+                                    <!-- Footer with Done button -->
+                                    <Border DockPanel.Dock="Bottom"
+                                            BorderThickness="0,1,0,0"
+                                            BorderBrush="{DynamicResource MaterialDesignDivider}"
+                                            Padding="12,8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                                       Text="{Binding AccountSelectionSummary}"
+                                                       Opacity="0.7" FontSize="12"/>
+                                            <Button Grid.Column="1" Content="Done"
+                                                    Style="{StaticResource MaterialDesignFlatButton}"
+                                                    Command="{Binding CloseAccountPickerCommand}"/>
+                                        </Grid>
+                                    </Border>
+
+                                    <TabControl Style="{StaticResource MaterialDesignTabControl}">
+                                        <!-- Categories tab -->
+                                        <TabItem Header="Categories">
+                                            <DockPanel Margin="0">
+                                                <TextBlock DockPanel.Dock="Top" Margin="12,8,12,4"
+                                                           Text="Click '+ Add' to add all accounts in a category to your selection. '−' removes them."
+                                                           FontSize="11" Opacity="0.7" TextWrapping="Wrap"/>
+                                                <ItemsControl ItemsSource="{Binding CategoryPicks}" MaxHeight="320">
+                                                    <ItemsControl.Template>
+                                                        <ControlTemplate>
+                                                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                                                <ItemsPresenter/>
+                                                            </ScrollViewer>
+                                                        </ControlTemplate>
+                                                    </ItemsControl.Template>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid Margin="12,4">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <Border Grid.Column="0" Width="10" Height="10" CornerRadius="5"
+                                                                        VerticalAlignment="Center" Margin="0,0,8,0">
+                                                                    <Border.Background>
+                                                                        <SolidColorBrush Color="{Binding Color, FallbackValue=#2196F3}"/>
+                                                                    </Border.Background>
+                                                                </Border>
+                                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                                    <TextBlock Text="{Binding Name}" FontWeight="Medium"/>
+                                                                    <TextBlock FontSize="11" Opacity="0.6">
+                                                                        <Run Text="{Binding AccountCount, Mode=OneWay}"/>
+                                                                        <Run Text=" account(s)"/>
+                                                                    </TextBlock>
+                                                                </StackPanel>
+                                                                <Button Grid.Column="2" Content="+ Add"
+                                                                        Style="{StaticResource MaterialDesignFlatButton}"
+                                                                        FontSize="11" Padding="8,4" Height="28"
+                                                                        Margin="0,0,4,0"
+                                                                        Command="{Binding DataContext.AddCategoryToSelectionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                        CommandParameter="{Binding}"/>
+                                                                <Button Grid.Column="3" Content="−"
+                                                                        Style="{StaticResource MaterialDesignFlatButton}"
+                                                                        FontSize="14" Padding="8,4" Height="28"
+                                                                        ToolTip="Remove this category's accounts from the selection"
+                                                                        Command="{Binding DataContext.RemoveCategoryFromSelectionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                        CommandParameter="{Binding}"/>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </DockPanel>
+                                        </TabItem>
+
+                                        <!-- Accounts tab -->
+                                        <TabItem Header="Accounts">
+                                            <DockPanel Margin="0">
+                                                <Grid DockPanel.Dock="Top" Margin="12,8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBox Grid.Column="0"
+                                                             Text="{Binding AccountSearchText, UpdateSourceTrigger=PropertyChanged}"
+                                                             materialDesign:HintAssist.Hint="Search…"
+                                                             Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                                             Margin="0,0,8,0"/>
+                                                    <Button Grid.Column="1" Content="All"
+                                                            Style="{StaticResource MaterialDesignFlatButton}"
+                                                            FontSize="11" Padding="8,4" Height="32"
+                                                            Command="{Binding SelectAllAccountsCommand}"
+                                                            ToolTip="Select all accounts"/>
+                                                    <Button Grid.Column="2" Content="Clear"
+                                                            Style="{StaticResource MaterialDesignFlatButton}"
+                                                            FontSize="11" Padding="8,4" Height="32"
+                                                            Command="{Binding ClearAccountSelectionCommand}"
+                                                            ToolTip="Clear all selections"/>
+                                                </Grid>
+                                                <ListBox ItemsSource="{Binding AccountPicks}" MaxHeight="320"
+                                                         SelectionMode="Single"
+                                                         Background="Transparent" BorderThickness="0">
+                                                    <ListBox.ItemContainerStyle>
+                                                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource MaterialDesignListBoxItem}">
+                                                            <Setter Property="Padding" Value="0"/>
+                                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                                        </Style>
+                                                    </ListBox.ItemContainerStyle>
+                                                    <ListBox.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                                      Margin="12,4">
+                                                                <StackPanel>
+                                                                    <TextBlock Text="{Binding Name}" FontWeight="Medium"/>
+                                                                    <TextBlock Text="{Binding Username}" FontSize="11" Opacity="0.6"/>
+                                                                </StackPanel>
+                                                            </CheckBox>
+                                                        </DataTemplate>
+                                                    </ListBox.ItemTemplate>
+                                                </ListBox>
+                                            </DockPanel>
+                                        </TabItem>
+                                    </TabControl>
+                                </DockPanel>
+                            </materialDesign:Card>
+                        </Popup>
+
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Style="{StaticResource MaterialDesignRaisedButton}"
+                                    Content="▶ Run" Margin="0,0,8,0"
+                                    Command="{Binding RunNowCommand}"
+                                    materialDesign:ButtonAssist.CornerRadius="4"
+                                    ToolTip="Run template on selected accounts (auto-opens browsers)"/>
+                            <Button Style="{StaticResource MaterialDesignOutlinedButton}"
+                                    Content="Run All Active" Margin="0,0,8,0"
+                                    Command="{Binding RunForAllActiveAccountsCommand}"
+                                    materialDesign:ButtonAssist.CornerRadius="4"
+                                    ToolTip="Run on every active account, auto-opening browsers"/>
+                            <Button Style="{StaticResource MaterialDesignOutlinedButton}"
+                                    Content="Stop All" Foreground="IndianRed"
+                                    Command="{Binding StopAllTasksCommand}"
+                                    materialDesign:ButtonAssist.CornerRadius="4"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Row 2: Preset bar -->
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <ComboBox Grid.Column="0" materialDesign:HintAssist.Hint="Preset (optional)"
+                                  ItemsSource="{Binding Presets}"
+                                  SelectedItem="{Binding SelectedPreset, Mode=TwoWay}"
+                                  DisplayMemberPath="Name"
+                                  Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,12,0"/>
+
+                        <Button Grid.Column="1" Content="Save preset"
+                                Style="{StaticResource MaterialDesignOutlinedButton}"
+                                Command="{Binding OpenSavePresetDialogCommand}"
+                                materialDesign:ButtonAssist.CornerRadius="4"
+                                Margin="0,0,8,0"
+                                ToolTip="Save current template + selected accounts as a preset"/>
+                        <Button Grid.Column="2" Content="Delete preset"
+                                Style="{StaticResource MaterialDesignFlatButton}"
+                                Foreground="IndianRed"
+                                Command="{Binding DeletePresetCommand}"
+                                materialDesign:ButtonAssist.CornerRadius="4"/>
+                    </Grid>
                 </StackPanel>
-            </Grid>
-        </materialDesign:Card>
+            </materialDesign:Card>
 
         <!-- Status -->
         <TextBlock DockPanel.Dock="Top" Text="{Binding StatusMessage}" Margin="0,0,0,8"
@@ -172,5 +357,28 @@
                 </DataGrid.Columns>
             </DataGrid>
         </DockPanel>
-    </DockPanel>
+        </DockPanel>
+
+        <!-- Save Preset modal overlay -->
+        <Grid Background="#80000000"
+              Visibility="{Binding IsSavePresetDialogOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <materialDesign:Card Width="360" Padding="20" VerticalAlignment="Center" HorizontalAlignment="Center">
+                <StackPanel>
+                    <TextBlock Text="Save preset" FontSize="18" FontWeight="Medium" Margin="0,0,0,12"/>
+                    <TextBlock Margin="0,0,0,8" FontSize="12" Opacity="0.7" TextWrapping="Wrap"
+                               Text="Saves the current template + selected accounts under a name. Re-using a name overwrites the existing preset."/>
+                    <TextBox materialDesign:HintAssist.Hint="Preset name"
+                             Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                             Text="{Binding PresetNameInput, UpdateSourceTrigger=PropertyChanged}"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                        <Button Content="Cancel" Style="{StaticResource MaterialDesignFlatButton}"
+                                Command="{Binding CancelSavePresetCommand}" Margin="0,0,8,0"/>
+                        <Button Content="Save" Style="{StaticResource MaterialDesignRaisedButton}"
+                                Command="{Binding ConfirmSavePresetCommand}"
+                                IsDefault="True"/>
+                    </StackPanel>
+                </StackPanel>
+            </materialDesign:Card>
+        </Grid>
+    </Grid>
 </UserControl>
