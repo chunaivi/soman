@@ -17,6 +17,7 @@ public class SoManDbContext : DbContext
     public DbSet<TaskExecution> TaskExecutions => Set<TaskExecution>();
     public DbSet<ActivityLog> ActivityLogs => Set<ActivityLog>();
     public DbSet<AppSettings> AppSettings => Set<AppSettings>();
+    public DbSet<TaskPreset> TaskPresets => Set<TaskPreset>();
 
     private readonly string _dbPath;
 
@@ -127,6 +128,16 @@ public class SoManDbContext : DbContext
         modelBuilder.Entity<AppSettings>(e =>
         {
             e.HasIndex(s => s.Key).IsUnique();
+        });
+
+        // TaskPreset
+        modelBuilder.Entity<TaskPreset>(e =>
+        {
+            e.HasIndex(p => p.Name).IsUnique();
+            e.HasOne(p => p.ActionTemplate)
+                .WithMany()
+                .HasForeignKey(p => p.ActionTemplateId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         SeedDefaults(modelBuilder);

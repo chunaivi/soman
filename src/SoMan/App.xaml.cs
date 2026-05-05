@@ -1,5 +1,6 @@
 ﻿using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
 using SoMan.Data;
 using SoMan.Services.Browser;
 using SoMan.Services.Config;
@@ -41,6 +42,24 @@ public partial class App : Application
         using (var db = new SoManDbContext())
         {
             await db.Database.EnsureCreatedAsync();
+
+            // EnsureCreated only seeds the schema for fresh databases. Users
+            // upgrading from an older DB won't get newly-added tables, so add
+            // any missing ones here. SQLite's CREATE TABLE IF NOT EXISTS is a
+            // no-op on fresh installs and a forward-compat path for upgrades.
+            await db.Database.ExecuteSqlRawAsync(@"
+                CREATE TABLE IF NOT EXISTS ""TaskPresets"" (
+                    ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_TaskPresets"" PRIMARY KEY AUTOINCREMENT,
+                    ""Name"" TEXT NOT NULL,
+                    ""ActionTemplateId"" INTEGER NULL,
+                    ""AccountIdsJson"" TEXT NOT NULL DEFAULT '[]',
+                    ""CreatedAt"" TEXT NOT NULL,
+                    ""UpdatedAt"" TEXT NOT NULL,
+                    CONSTRAINT ""FK_TaskPresets_ActionTemplates_ActionTemplateId""
+                        FOREIGN KEY (""ActionTemplateId"") REFERENCES ""ActionTemplates"" (""Id"") ON DELETE SET NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS ""IX_TaskPresets_Name"" ON ""TaskPresets"" (""Name"");
+            ");
         }
 
         var mainWindow = new MainWindow
@@ -73,6 +92,7 @@ public partial class App : Application
 
         // Template & Task engine
         services.AddTransient<ITemplateService, TemplateService>();
+        services.AddTransient<ITaskPresetService, TaskPresetService>();
         services.AddSingleton<ITaskEngine, TaskEngine>();
 
         // ViewModels
