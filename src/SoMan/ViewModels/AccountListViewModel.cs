@@ -400,12 +400,14 @@ public partial class AccountListViewModel : ViewModelBase
         IsLoading = true;
         int opened = 0;
         int failed = 0;
+        int alreadyOpen = 0;
         try
         {
             foreach (var sel in selected)
             {
                 if (_browserManager.IsContextAlive(sel.Id))
                 {
+                    alreadyOpen++;
                     continue; // already open
                 }
 
@@ -445,6 +447,14 @@ public partial class AccountListViewModel : ViewModelBase
             else if (failed > 0)
             {
                 BrowserStatus = $"✗ Failed to open {failed} browser(s).";
+            }
+            else if (alreadyOpen == selected.Count && alreadyOpen > 0)
+            {
+                // Every selected account already has a live context — surface
+                // that explicitly so the click never feels like a no-op.
+                BrowserStatus = alreadyOpen == 1
+                    ? "ℹ Browser already open for this account."
+                    : $"ℹ All {alreadyOpen} selected browser(s) already open.";
             }
         }
         finally

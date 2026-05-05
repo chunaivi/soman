@@ -83,24 +83,51 @@ public class BrowserManager : IBrowserManager
     {
         if (headless)
         {
-            _headlessBrowser ??= await _playwright!.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+            // If the previous instance was disconnected (e.g. the user killed
+            // the process), drop it so we can launch a fresh one.
+            if (_headlessBrowser != null && !_headlessBrowser.IsConnected)
+                _headlessBrowser = null;
+
+            if (_headlessBrowser == null)
             {
-                Headless = true,
-                Args = new[] { "--disable-blink-features=AutomationControlled" }
-            });
+                _headlessBrowser = await _playwright!.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+                {
+                    Headless = true,
+                    Args = new[] { "--disable-blink-features=AutomationControlled" }
+                });
+                _headlessBrowser.Disconnected += (_, _) => { _headlessBrowser = null; };
+            }
             return _headlessBrowser;
         }
         else
         {
-            _headedBrowser ??= await _playwright!.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+            if (_headedBrowser != null && !_headedBrowser.IsConnected)
+                _headedBrowser = null;
+
+            if (_headedBrowser == null)
             {
-                Headless = false,
-                Args = new[]
+                _headedBrowser = await _playwright!.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
                 {
-                    "--disable-blink-features=AutomationControlled",
-                    $"--window-size={MobileWidth + WindowChromeW},{MobileHeight + WindowChromeH}"
-                }
-            });
+                    Headless = false,
+                    Args = new[]
+                    {
+                        "--disable-blink-features=AutomationControlled",
+                        $"--window-size={MobileWidth + WindowChromeW},{MobileHeight + WindowChromeH}"
+                    }
+                });
+                _headedBrowser.Disconnected += (_, _) =>
+                {
+                    _headedBrowser = null;
+                    // When the headed browser dies, every headed context dies
+                    // with it — drop the stale entries so the user can re-open.
+                    foreach (var key in _contexts.Keys.ToArray())
+                    {
+                        _contexts.TryRemove(key, out _);
+                        _pages.TryRemove(key, out _);
+                    }
+                    _nextWindowX = 0;
+                };
+            }
             return _headedBrowser;
         }
     }
@@ -188,6 +215,17 @@ public class BrowserManager : IBrowserManager
             System.Diagnostics.Debug.WriteLine($"[BrowserManager] WARNING: No encrypted cookies for account '{account.Name}'");
         }
 
+        // Auto-cleanup when the user closes the browser window or otherwise
+        // disposes the context. Without this the dictionary holds dead entries
+        // and IsContextAlive lies, so the next "Open Browser" click silently
+        // skips re-launch.
+        var capturedAccountId = account.Id;
+        context.Close += (_, _) =>
+        {
+            _contexts.TryRemove(capturedAccountId, out _);
+            _pages.TryRemove(capturedAccountId, out _);
+        };
+
         _contexts.TryAdd(account.Id, context);
         return context;
     }
@@ -270,7 +308,25 @@ public class BrowserManager : IBrowserManager
 
     public int GetActiveContextCount() => _contexts.Count;
 
-    public bool IsContextAlive(int accountId) => _contexts.ContainsKey(accountId);
+    public bool IsContextAlive(int accountId)
+    {
+        if (!_contexts.TryGetValue(accountId, out var ctx)) return false;
+
+        // Belt-and-braces: even with the Close handler, a hard browser kill or
+        // race may leave the entry behind. Probe via Pages — a closed context
+        // throws. If it does, evict and report dead.
+        try
+        {
+            _ = ctx.Pages;
+            return true;
+        }
+        catch
+        {
+            _contexts.TryRemove(accountId, out _);
+            _pages.TryRemove(accountId, out _);
+            return false;
+        }
+    }
 
     public IBrowserContext? GetContext(int accountId)
     {
