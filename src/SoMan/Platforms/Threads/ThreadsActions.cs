@@ -572,49 +572,90 @@ public class ThreadsActions
     // ── Click Random Post ──
 
     /// <summary>
-    /// Clicks on a random post thumbnail/link from current page (feed/search).
-    /// Waits for load + scrolls, picks random post link, clicks to interact.
-    /// More reliable than opening detail view.
+    /// Clicks on a random post thumbnail/link from the current page (feed/search).
+    /// Picks a *real* random post (the previous version always picked the first
+    /// because <c>.First</c> on the Locator forced Count() to 1) and uses a
+    /// progressive small-step scroll with a hover-then-click cadence so the
+    /// interaction looks more human and less like a deterministic bot.
     /// </summary>
     public async Task<bool> ClickRandomPostAsync(IPage page, CancellationToken ct = default)
     {
-        // Wait & scroll to load posts
         await WaitForFeedLoadAsync(page, ct);
-        await ScrollFeedAsync(page, 2, ct);
-
-        // Cari post links (lebih reliable dari article)
-        var postLinks = page.Locator("a[href*='/post/']").First;
-        int total = await postLinks.CountAsync();
-        if (total == 0)
-        {
-            // Fallback ke articles
-            var posts = page.Locator(ThreadsSelectors.PostArticle);
-            total = await posts.CountAsync();
-            if (total == 0) return false;
-        }
 
         var rng = new Random();
-        int index = rng.Next(0, Math.Min(3, total));
-        
-        ILocator target;
-        if (total > 0)
+
+        // Collect unique post hrefs across a few small scrolls. We dedupe on href
+        // so the same post in two viewport positions only counts once.
+        var seen = new HashSet<string>();
+        var hrefs = new List<string>();
+        await CollectVisiblePostHrefsAsync(page, seen, hrefs, ct);
+
+        // 2–4 small random scroll hops (200–460px, 300–800ms gap) — much more
+        // organic than the previous fixed 2-second WheelAsync loop.
+        int hops = rng.Next(2, 5);
+        for (int i = 0; i < hops && !ct.IsCancellationRequested && hrefs.Count < 12; i++)
         {
-            // Prioritaskan post links
-            target = page.Locator("a[href*='/post/']").Nth(index);
-            if (await target.CountAsync() == 0)
-                target = page.Locator(ThreadsSelectors.PostArticle).Nth(index);
-        }
-        else
-        {
-            target = page.Locator(ThreadsSelectors.PostArticle).Nth(index);
+            int delta = rng.Next(200, 460);
+            await page.Mouse.WheelAsync(0, delta);
+            await _delay.WaitAsync(300, 800, ct);
+            await CollectVisiblePostHrefsAsync(page, seen, hrefs, ct);
         }
 
-        await target.ScrollIntoViewIfNeededAsync();
-        await _delay.WaitAsync(500, 1000, ct);
-        await target.ClickAsync();
+        // Pick within the first N hrefs we saw — keeps results relevant on a
+        // search page while still being non-deterministic.
+        if (hrefs.Count > 0)
+        {
+            int pool = Math.Min(hrefs.Count, 10);
+            string chosenHref = hrefs[rng.Next(0, pool)];
+
+            ILocator target = page.Locator($"a[href='{chosenHref}']").First;
+            if (await target.CountAsync() == 0)
+                target = page.Locator($"a[href*='{EscapePostHrefForCss(chosenHref)}']").First;
+
+            if (await target.CountAsync() > 0)
+            {
+                await target.ScrollIntoViewIfNeededAsync();
+                await _delay.WaitAsync(800, 2200, ct);    // pause to "read" the thumbnail
+                try { await target.HoverAsync(); } catch { /* hover is best-effort */ }
+                await _delay.WaitAsync(150, 500, ct);
+                await target.ClickAsync();
+                await _delay.WaitAsync(2000, 4000, ct);
+                return true;
+            }
+        }
+
+        // Fallback: pick a random article container if we couldn't resolve a link.
+        var posts = page.Locator(ThreadsSelectors.PostArticle);
+        int total = await posts.CountAsync();
+        if (total == 0) return false;
+
+        int idx = rng.Next(0, Math.Min(total, 10));
+        var post = posts.Nth(idx);
+        await post.ScrollIntoViewIfNeededAsync();
+        await _delay.WaitAsync(800, 2000, ct);
+        try { await post.HoverAsync(); } catch { }
+        await _delay.WaitAsync(150, 500, ct);
+        await post.ClickAsync();
         await _delay.WaitAsync(2000, 4000, ct);
         return true;
     }
+
+    private static async Task CollectVisiblePostHrefsAsync(
+        IPage page, HashSet<string> seen, List<string> hrefs, CancellationToken ct)
+    {
+        if (ct.IsCancellationRequested) return;
+        var locator = page.Locator("a[href*='/post/']");
+        int n = await locator.CountAsync();
+        for (int i = 0; i < n; i++)
+        {
+            var href = await locator.Nth(i).GetAttributeAsync("href");
+            if (string.IsNullOrEmpty(href)) continue;
+            if (seen.Add(href)) hrefs.Add(href);
+        }
+    }
+
+    private static string EscapePostHrefForCss(string href)
+        => href.Replace("\\", "\\\\").Replace("'", "\\'");
 
     // ── Helpers ──
 
