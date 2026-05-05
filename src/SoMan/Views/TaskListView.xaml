@@ -77,12 +77,16 @@
                             </Grid>
                         </Border>
 
-                        <!-- Popup floats over the toggle and contains the Categories/Accounts tabs -->
+                        <!-- Popup floats over the toggle and contains the Categories/Accounts tabs.
+                             AllowsTransparency=False so it gets a real Win32 window with an
+                             opaque hit-test surface — otherwise clicks on the transparent card
+                             area were treated as "outside" and StaysOpen=False closed it. -->
                         <Popup PlacementTarget="{Binding ElementName=AccountPickerToggle}"
                                Placement="Bottom"
                                IsOpen="{Binding IsAccountPickerOpen, Mode=TwoWay}"
-                               StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
-                            <materialDesign:Card Width="420" Padding="0" Margin="0,4,0,0">
+                               StaysOpen="False" AllowsTransparency="False">
+                            <materialDesign:Card Width="420" Padding="0" Margin="0,4,0,0"
+                                                 Background="{DynamicResource MaterialDesignPaper}">
                                 <DockPanel>
                                     <!-- Footer with Done button -->
                                     <Border DockPanel.Dock="Bottom"
