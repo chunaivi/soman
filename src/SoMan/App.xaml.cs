@@ -13,6 +13,7 @@ using SoMan.Platforms.Threads;
 using SoMan.Services.Template;
 using SoMan.Services.Execution;
 using SoMan.Services.Scheduler;
+using SoMan.Services.Theming;
 using SoMan.ViewModels;
 
 namespace SoMan;
@@ -43,6 +44,10 @@ public partial class App : Application
         {
             await db.Database.EnsureCreatedAsync();
         }
+
+        // Apply saved theme (Dark/Light) before any window is shown.
+        try { await _serviceProvider.GetRequiredService<IThemeService>().ApplyStartupThemeAsync(); }
+        catch { /* fall back to the BundledTheme declared in App.xaml */ }
 
         // Start Quartz scheduler and register all enabled ScheduledTasks.
         var scheduler = _serviceProvider.GetRequiredService<ISchedulerService>();
@@ -89,6 +94,9 @@ public partial class App : Application
         // Scheduler (Quartz). Singleton so the same IScheduler instance lives
         // for the whole app lifetime.
         services.AddSingleton<ISchedulerService, SchedulerService>();
+
+        // Theme service — holds current base theme and applies via PaletteHelper.
+        services.AddSingleton<IThemeService, ThemeService>();
 
         // ViewModels
         services.AddSingleton<MainViewModel>();
