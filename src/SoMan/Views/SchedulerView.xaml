@@ -189,10 +189,12 @@
                                 <StackPanel Margin="12,8,12,12">
                                     <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,6"
                                                Text="Only used when preset is 'Custom'. Quartz cron format: sec min hour day-of-month month day-of-week. Specify '?' for whichever of day-of-month/day-of-week you are not using."/>
+                                    <TextBlock Text="Cron expression" FontSize="12" Opacity="0.7" Margin="0,4,0,4"/>
                                     <TextBox Text="{Binding CustomCron, UpdateSourceTrigger=PropertyChanged}"
-                                             Style="{StaticResource MaterialDesignOutlinedTextBox}"
-                                             materialDesign:HintAssist.Hint="Cron expression"
-                                             FontFamily="Consolas, Courier New, monospace"/>
+                                             FontFamily="Consolas, Courier New, monospace"
+                                             Padding="8,6"
+                                             BorderBrush="{DynamicResource MaterialDesignDivider}"
+                                             BorderThickness="1"/>
                                 </StackPanel>
                             </Expander>
 
