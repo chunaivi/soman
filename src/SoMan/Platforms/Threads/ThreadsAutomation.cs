@@ -252,7 +252,7 @@ public class ThreadsAutomation
             await _delay.WaitAsync(2000, 4000, ct);
         }
 
-        await _actions.WaitForFeedLoadAsync(page, ct);
+        // ClickRandomPostAsync waits for the feed itself, so no outer wait here.
         bool clicked = await _actions.ClickRandomPostAsync(page, ct);
 
         await _logger.LogAsync(accountId, ActionType.OpenRandomPost, page.Url,
