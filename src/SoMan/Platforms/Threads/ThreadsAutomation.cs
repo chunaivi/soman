@@ -1,10 +1,12 @@
 using System.Collections.Concurrent;
+using System.IO;
 using System.Text.Json;
 using Microsoft.Playwright;
 using SoMan.Models;
 using SoMan.Services.Browser;
 using SoMan.Services.Delay;
 using SoMan.Services.Logging;
+using SoMan.Services.Text;
 
 namespace SoMan.Platforms.Threads;
 
@@ -65,6 +67,7 @@ public class ThreadsAutomation
                 ActionType.Search => await ExecuteSearchAsync(page, accountId, parameters, ct),
                 ActionType.OpenRandomPost => await ExecuteOpenRandomPostAsync(page, accountId, parameters, ct),
                 ActionType.ReplyToOwnLastPost => await ExecuteReplyToOwnLastPostAsync(page, accountId, parameters, ct),
+                ActionType.CreateThreadFromText => await ExecuteCreateThreadFromTextAsync(page, accountId, parameters, ct),
                 _ => (false, $"Unknown action type: {step.ActionType}")
             };
         }
@@ -269,6 +272,98 @@ public class ThreadsAutomation
             await _logger.LogAsync(accountId, ActionType.ReplyToOwnLastPost, postUrl, ActionResult.Failed, ex.Message);
             return (false, $"Reply failed: {ex.Message}");
         }
+    }
+
+    private async Task<(bool, string)> ExecuteCreateThreadFromTextAsync(
+        IPage page, int accountId, Dictionary<string, JsonElement> p, CancellationToken ct)
+    {
+        // Resolve text source: pasted text takes priority, fall back to file path.
+        string? text = GetString(p, "text", null);
+        string? filePath = GetString(p, "filePath", null);
+
+        if (string.IsNullOrWhiteSpace(text) && !string.IsNullOrWhiteSpace(filePath))
+        {
+            try
+            {
+                if (!File.Exists(filePath))
+                    return (false, $"File not found: {filePath}");
+                text = await File.ReadAllTextAsync(filePath, ct);
+            }
+            catch (Exception ex)
+            {
+                return (false, $"Failed to read file: {ex.Message}");
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+            return (false, "Thread text is required (paste `text` or provide `filePath`).");
+
+        int maxChars = GetInt(p, "maxCharsPerSegment", ThreadTextSplitter.ThreadsMaxCharsPerPost);
+        int delayMin = GetInt(p, "segmentDelayMinMs", 3000);
+        int delayMax = GetInt(p, "segmentDelayMaxMs", 8000);
+        if (delayMax < delayMin) delayMax = delayMin;
+
+        var segments = ThreadTextSplitter.Split(text, maxChars);
+        if (segments.Count == 0)
+            return (false, "Text produced zero segments after split.");
+
+        // Segment 1 → CreatePost (reuses the URL-capture logic so later
+        // segments can reply to it).
+        var headUrl = await _actions.CreatePostAsync(page, segments[0], ct);
+        if (headUrl == null)
+        {
+            await _logger.LogAsync(accountId, ActionType.CreateThreadFromText, null,
+                ActionResult.Failed, "Head post failed");
+            return (false, "Failed to create head post of thread.");
+        }
+
+        _lastOwnPostUrl[accountId] = headUrl;
+        int succeeded = 1;
+
+        // Segments 2..N → reply to head (Threads renders chained self-replies
+        // nested under the head post).
+        for (int i = 1; i < segments.Count && !ct.IsCancellationRequested; i++)
+        {
+            await _delay.WaitAsync(delayMin, delayMax, ct);
+
+            // Make sure we're on the head post before each reply — Threads'
+            // composer resets state between replies.
+            if (!page.Url.TrimEnd('/').Equals(headUrl.TrimEnd('/')))
+            {
+                await page.GotoAsync(headUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = ThreadsConstants.PageLoadTimeout });
+                await _delay.WaitAsync(1500, 3000, ct);
+            }
+
+            var target = page.Locator(ThreadsSelectors.PostArticle).First;
+            if (await target.CountAsync() == 0)
+            {
+                await _logger.LogAsync(accountId, ActionType.CreateThreadFromText, headUrl,
+                    ActionResult.Failed, $"Segment {i + 1}/{segments.Count}: head article not found");
+                return (false, $"Thread segment {i + 1}/{segments.Count} failed — head article not found.");
+            }
+
+            try
+            {
+                bool ok = await _actions.CommentOnPostAsync(page, target, segments[i], ct);
+                if (!ok)
+                {
+                    await _logger.LogAsync(accountId, ActionType.CreateThreadFromText, headUrl,
+                        ActionResult.Failed, $"Segment {i + 1}/{segments.Count}: reply submit failed");
+                    return (false, $"Thread segment {i + 1}/{segments.Count} failed to submit.");
+                }
+                succeeded++;
+            }
+            catch (Exception ex)
+            {
+                await _logger.LogAsync(accountId, ActionType.CreateThreadFromText, headUrl,
+                    ActionResult.Failed, $"Segment {i + 1}/{segments.Count}: {ex.Message}");
+                return (false, $"Thread segment {i + 1}/{segments.Count} error: {ex.Message}");
+            }
+        }
+
+        await _logger.LogAsync(accountId, ActionType.CreateThreadFromText, headUrl,
+            ActionResult.Success, $"Posted thread: {succeeded}/{segments.Count} segments");
+        return (true, $"Thread posted: {succeeded}/{segments.Count} segments.");
     }
 
     private async Task<(bool, string)> ExecuteRepostAsync(

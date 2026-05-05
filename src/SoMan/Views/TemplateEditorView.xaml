@@ -83,6 +83,11 @@
                                 Content="+ Add Step" Margin="12,0,0,0"
                                 Command="{Binding OpenAddStepDialogCommand}"
                                 materialDesign:ButtonAssist.CornerRadius="4"/>
+                        <Button Style="{StaticResource MaterialDesignOutlinedButton}"
+                                Content="Import .txt → thread" Margin="8,0,0,0"
+                                ToolTip="Auto-generate steps (CreatePost + replies) from a .txt file, split at 500 chars"
+                                Command="{Binding ImportThreadFromFileCommand}"
+                                materialDesign:ButtonAssist.CornerRadius="4"/>
                         <TextBlock Text="{Binding StatusMessage}" Margin="16,0,0,0"
                                    VerticalAlignment="Center" Opacity="0.7" FontSize="12"/>
                     </StackPanel>
@@ -340,6 +345,70 @@
                         <ToggleButton Style="{StaticResource MaterialDesignSwitchToggleButton}"
                                       IsChecked="{Binding ParamInteract}" Margin="0,0,8,0"/>
                         <TextBlock Text="Interact with search results" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- CreateThreadFromText — paste/load + split preview -->
+                    <StackPanel>
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="CreateThreadFromText">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+
+                        <TextBox materialDesign:HintAssist.Hint="Paste thread text here (or browse a .txt file)"
+                                 Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                 Text="{Binding ParamThreadText, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 MinHeight="140" MaxHeight="220"
+                                 Margin="0,0,0,8"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Style="{StaticResource MaterialDesignOutlinedButton}"
+                                    Content="Browse .txt…"
+                                    Command="{Binding BrowseThreadFileCommand}"
+                                    materialDesign:ButtonAssist.CornerRadius="4" Margin="0,0,8,0"/>
+                            <Button Style="{StaticResource MaterialDesignOutlinedButton}"
+                                    Content="Preview split"
+                                    Command="{Binding PreviewThreadSplitCommand}"
+                                    materialDesign:ButtonAssist.CornerRadius="4"/>
+                            <TextBlock Text="{Binding ParamThreadFilePath}" Margin="12,0,0,0"
+                                       VerticalAlignment="Center" Opacity="0.6" FontSize="11"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" materialDesign:HintAssist.Hint="Max chars/segment"
+                                     Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     Text="{Binding ParamMaxCharsPerSegment, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBox Grid.Column="2" materialDesign:HintAssist.Hint="Delay min (ms)"
+                                     Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     Text="{Binding ParamSegmentDelayMin, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBox Grid.Column="4" materialDesign:HintAssist.Hint="Delay max (ms)"
+                                     Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     Text="{Binding ParamSegmentDelayMax, UpdateSourceTrigger=PropertyChanged}"/>
+                        </Grid>
+
+                        <TextBox Text="{Binding ParamThreadPreview, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 FontFamily="Consolas" FontSize="11"
+                                 AcceptsReturn="True" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 MinHeight="80" MaxHeight="140"
+                                 Margin="0,0,0,12"
+                                 Visibility="{Binding ParamThreadPreview, Converter={StaticResource NullToVisibility}}"/>
                     </StackPanel>
 
                     <!-- Delay settings -->

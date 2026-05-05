@@ -14,7 +14,11 @@ public enum ActionType
     OpenRandomPost,
     // Replies to the account's most-recently-created post in this run —
     // used to build a Threads "utas" (thread chain) step-by-step.
-    ReplyToOwnLastPost
+    ReplyToOwnLastPost,
+    // Takes one large text blob (pasted or loaded from a .txt file) and
+    // automatically splits it into 500-char-friendly chunks, posts the first
+    // as a new post and the rest as self-replies — all in a single step.
+    CreateThreadFromText
 }
 
 public class ActionTemplate

@@ -1,9 +1,12 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Win32;
 using SoMan.Models;
 using SoMan.Services.Template;
+using SoMan.Services.Text;
 
 namespace SoMan.ViewModels;
 
@@ -95,6 +98,25 @@ public partial class TemplateEditorViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _paramInteract;
+
+    // Thread-from-text parameters
+    [ObservableProperty]
+    private string _paramThreadText = string.Empty;
+
+    [ObservableProperty]
+    private string _paramThreadFilePath = string.Empty;
+
+    [ObservableProperty]
+    private int _paramMaxCharsPerSegment = 500;
+
+    [ObservableProperty]
+    private int _paramSegmentDelayMin = 3000;
+
+    [ObservableProperty]
+    private int _paramSegmentDelayMax = 8000;
+
+    [ObservableProperty]
+    private string _paramThreadPreview = string.Empty;
 
     [ObservableProperty]
     private string _statusMessage = string.Empty;
@@ -314,6 +336,127 @@ public partial class TemplateEditorViewModel : ViewModelBase
         await RefreshStepsAsync();
     }
 
+    // ── Thread-from-text helpers ──
+
+    [RelayCommand]
+    private void BrowseThreadFile()
+    {
+        var dlg = new OpenFileDialog
+        {
+            Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*",
+            Title = "Select thread text file",
+        };
+        if (dlg.ShowDialog() == true)
+        {
+            ParamThreadFilePath = dlg.FileName;
+            try
+            {
+                // Load content straight into the paste textbox so user can tweak
+                // before saving the step.
+                ParamThreadText = File.ReadAllText(dlg.FileName);
+                PreviewThreadSplit();
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = $"Could not read file: {ex.Message}";
+            }
+        }
+    }
+
+    [RelayCommand]
+    private void PreviewThreadSplit()
+    {
+        var source = !string.IsNullOrWhiteSpace(ParamThreadText)
+            ? ParamThreadText
+            : (File.Exists(ParamThreadFilePath) ? SafeReadFile(ParamThreadFilePath) : string.Empty);
+
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            ParamThreadPreview = "(no text yet)";
+            return;
+        }
+
+        var segs = ThreadTextSplitter.Split(source, ParamMaxCharsPerSegment);
+        if (segs.Count == 0)
+        {
+            ParamThreadPreview = "(no segments produced)";
+            return;
+        }
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"{segs.Count} segments (max {ParamMaxCharsPerSegment} chars each):");
+        sb.AppendLine();
+        for (int i = 0; i < segs.Count; i++)
+        {
+            sb.AppendLine($"── [{i + 1}/{segs.Count}] ({segs[i].Length} chars) ─────────");
+            sb.AppendLine(segs[i]);
+            sb.AppendLine();
+        }
+        ParamThreadPreview = sb.ToString();
+    }
+
+    /// <summary>
+    /// Browses a .txt file and auto-generates template steps (1 CreatePost +
+    /// N−1 ReplyToOwnLastPost) with each segment pre-filled. Lets the user
+    /// edit per-segment afterwards.
+    /// </summary>
+    [RelayCommand]
+    private async Task ImportThreadFromFileAsync()
+    {
+        if (SelectedTemplate == null)
+        {
+            ErrorMessage = "Select or create a template first.";
+            return;
+        }
+
+        var dlg = new OpenFileDialog
+        {
+            Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*",
+            Title = "Import thread text file",
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        string content;
+        try
+        {
+            content = await File.ReadAllTextAsync(dlg.FileName);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Could not read file: {ex.Message}";
+            return;
+        }
+
+        var segments = ThreadTextSplitter.Split(content, ThreadTextSplitter.ThreadsMaxCharsPerPost);
+        if (segments.Count == 0)
+        {
+            ErrorMessage = "File produced zero segments.";
+            return;
+        }
+
+        // First segment → CreatePost
+        var headJson = JsonSerializer.Serialize(new Dictionary<string, object> { ["text"] = segments[0] });
+        await _templateService.AddStepAsync(SelectedTemplate.Id, ActionType.CreatePost, headJson, 3000, 8000);
+
+        // Remaining segments → ReplyToOwnLastPost (single text via `texts` array of 1)
+        for (int i = 1; i < segments.Count; i++)
+        {
+            var replyJson = JsonSerializer.Serialize(new Dictionary<string, object>
+            {
+                ["texts"] = new[] { segments[i] },
+            });
+            await _templateService.AddStepAsync(SelectedTemplate.Id, ActionType.ReplyToOwnLastPost, replyJson, 3000, 8000);
+        }
+
+        await RefreshStepsAsync();
+        StatusMessage = $"✓ Imported {segments.Count} segments from {Path.GetFileName(dlg.FileName)}.";
+    }
+
+    private static string SafeReadFile(string path)
+    {
+        try { return File.ReadAllText(path); } catch { return string.Empty; }
+    }
+
     [RelayCommand]
     private void CancelDialog()
     {
@@ -344,6 +487,12 @@ public partial class TemplateEditorViewModel : ViewModelBase
         ParamPostText = string.Empty;
         ParamKeyword = string.Empty;
         ParamInteract = false;
+        ParamThreadText = string.Empty;
+        ParamThreadFilePath = string.Empty;
+        ParamMaxCharsPerSegment = 500;
+        ParamSegmentDelayMin = 3000;
+        ParamSegmentDelayMax = 8000;
+        ParamThreadPreview = string.Empty;
     }
 
     private void LoadStepParams(string json)
@@ -368,6 +517,20 @@ public partial class TemplateEditorViewModel : ViewModelBase
                 ParamKeyword = k.GetString() ?? string.Empty;
             if (p.TryGetValue("interactWithResults", out var ir))
                 ParamInteract = ir.ValueKind == JsonValueKind.True;
+
+            // CreateThreadFromText — reuse `text` bucket for the long blob, plus
+            // dedicated fields for file / split / segment delays.
+            if (FormStepActionType == ActionType.CreateThreadFromText &&
+                p.TryGetValue("text", out var tt) && tt.ValueKind == JsonValueKind.String)
+                ParamThreadText = tt.GetString() ?? string.Empty;
+            if (p.TryGetValue("filePath", out var fp) && fp.ValueKind == JsonValueKind.String)
+                ParamThreadFilePath = fp.GetString() ?? string.Empty;
+            if (p.TryGetValue("maxCharsPerSegment", out var mc) && mc.ValueKind == JsonValueKind.Number)
+                ParamMaxCharsPerSegment = mc.GetInt32();
+            if (p.TryGetValue("segmentDelayMinMs", out var sdm) && sdm.ValueKind == JsonValueKind.Number)
+                ParamSegmentDelayMin = sdm.GetInt32();
+            if (p.TryGetValue("segmentDelayMaxMs", out var sdx) && sdx.ValueKind == JsonValueKind.Number)
+                ParamSegmentDelayMax = sdx.GetInt32();
         }
         catch { /* ignore parse errors */ }
     }
@@ -416,6 +579,15 @@ public partial class TemplateEditorViewModel : ViewModelBase
                 // Random pick from pipe-separated variants (reuses the same
                 // "texts" bucket as Comment for UI consistency).
                 obj["texts"] = ParamTexts.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                break;
+            case ActionType.CreateThreadFromText:
+                if (!string.IsNullOrWhiteSpace(ParamThreadText))
+                    obj["text"] = ParamThreadText;
+                if (!string.IsNullOrWhiteSpace(ParamThreadFilePath))
+                    obj["filePath"] = ParamThreadFilePath.Trim();
+                obj["maxCharsPerSegment"] = ParamMaxCharsPerSegment;
+                obj["segmentDelayMinMs"] = ParamSegmentDelayMin;
+                obj["segmentDelayMaxMs"] = ParamSegmentDelayMax;
                 break;
         }
 
