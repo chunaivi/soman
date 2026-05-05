@@ -83,12 +83,58 @@
                 </StackPanel>
             </materialDesign:Card>
 
-            <!-- Placeholder for Running Tasks & Activity -->
+            <!-- Recent Activity -->
             <materialDesign:Card Padding="20">
                 <StackPanel>
-                    <TextBlock Text="Recent Activity" FontSize="16" FontWeight="Medium" Margin="0,0,0,12" />
+                    <DockPanel Margin="0,0,0,12">
+                        <TextBlock Text="Recent Activity" FontSize="16" FontWeight="Medium" VerticalAlignment="Center" />
+                        <Button DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                Style="{StaticResource MaterialDesignFlatButton}"
+                                Content="Refresh"
+                                Command="{Binding RefreshCommand}"/>
+                    </DockPanel>
                     <TextBlock Text="No activity yet. Add accounts and run templates to get started."
-                               Opacity="0.5" FontStyle="Italic" />
+                               Opacity="0.5" FontStyle="Italic"
+                               Visibility="{Binding RecentActivity.Count, Converter={StaticResource CountToVisibility}, ConverterParameter=Invert}"/>
+                    <ItemsControl ItemsSource="{Binding RecentActivity}"
+                                  Visibility="{Binding RecentActivity.Count, Converter={StaticResource CountToVisibility}}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="150"/>
+                                        <ColumnDefinition Width="140"/>
+                                        <ColumnDefinition Width="110"/>
+                                        <ColumnDefinition Width="80"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding ExecutedAt, StringFormat='{}{0:yyyy-MM-dd HH:mm:ss}'}" Opacity="0.7" FontSize="12"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Account.Username}" FontSize="12"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding ActionType}" FontSize="12"/>
+                                    <Border Grid.Column="3" CornerRadius="10" Padding="8,2" HorizontalAlignment="Left">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="#555"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Result}" Value="Success">
+                                                        <Setter Property="Background" Value="#2E7D32"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Result}" Value="Failed">
+                                                        <Setter Property="Background" Value="#C62828"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Result}" Value="Skipped">
+                                                        <Setter Property="Background" Value="#6A6A6A"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="{Binding Result}" Foreground="White" FontSize="11"/>
+                                    </Border>
+                                    <TextBlock Grid.Column="4" Text="{Binding Details}" Opacity="0.8" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                 </StackPanel>
             </materialDesign:Card>
         </StackPanel>
