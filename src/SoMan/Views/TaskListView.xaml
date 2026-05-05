@@ -78,13 +78,14 @@
                         </Border>
 
                         <!-- Popup floats over the toggle and contains the Categories/Accounts tabs.
-                             AllowsTransparency=False so it gets a real Win32 window with an
-                             opaque hit-test surface — otherwise clicks on the transparent card
-                             area were treated as "outside" and StaysOpen=False closed it. -->
+                             StaysOpen=True so clicking inner buttons doesn't break WPF's mouse
+                             capture and immediately close the popup. A separate full-window
+                             click-catcher (further down in this view) handles "click outside
+                             to close". -->
                         <Popup PlacementTarget="{Binding ElementName=AccountPickerToggle}"
                                Placement="Bottom"
                                IsOpen="{Binding IsAccountPickerOpen, Mode=TwoWay}"
-                               StaysOpen="False" AllowsTransparency="False">
+                               StaysOpen="True" AllowsTransparency="False">
                             <materialDesign:Card Width="420" Padding="0" Margin="0,4,0,0"
                                                  Background="{DynamicResource MaterialDesignPaper}">
                                 <DockPanel>
@@ -389,6 +390,18 @@
             </DataGrid>
         </DockPanel>
         </DockPanel>
+
+        <!-- Click-outside dismisser for the account picker popup.
+             The Popup itself uses StaysOpen=True; this transparent (but
+             hit-testable) layer sits above the page and below the Popup
+             window, and any click on it closes the picker. -->
+        <Rectangle Fill="#01000000"
+                   Visibility="{Binding IsAccountPickerOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Rectangle.InputBindings>
+                <MouseBinding Gesture="LeftClick" Command="{Binding CloseAccountPickerCommand}"/>
+                <MouseBinding Gesture="RightClick" Command="{Binding CloseAccountPickerCommand}"/>
+            </Rectangle.InputBindings>
+        </Rectangle>
 
         <!-- Save Preset modal overlay -->
         <Grid Background="#80000000"
