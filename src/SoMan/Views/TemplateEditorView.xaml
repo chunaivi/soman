@@ -250,8 +250,8 @@
                         </TextBox.Style>
                     </TextBox>
 
-                    <!-- Texts (Comment) -->
-                    <TextBox materialDesign:HintAssist.Hint="Comment texts (separate with |)"
+                    <!-- Texts (Comment, ReplyToOwnLastPost) -->
+                    <TextBox materialDesign:HintAssist.Hint="Texts (separate with |, one is picked at random)"
                              Text="{Binding ParamTexts, UpdateSourceTrigger=PropertyChanged}"
                              Margin="0,0,0,12"
                              AcceptsReturn="True" MinHeight="60">
@@ -260,6 +260,9 @@
                                 <Setter Property="Visibility" Value="Collapsed"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding FormStepActionType}" Value="Comment">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="ReplyToOwnLastPost">
                                         <Setter Property="Visibility" Value="Visible"/>
                                     </DataTrigger>
                                 </Style.Triggers>

@@ -437,11 +437,16 @@ public class ThreadsActions
 
     // ── Create Post ──
 
-    public async Task<bool> CreatePostAsync(IPage page, string text, CancellationToken ct = default)
+    /// <summary>
+    /// Creates a new top-level post. Returns the URL of the newly-created post
+    /// on success, or null if the post could not be created or its URL could
+    /// not be recovered.
+    /// </summary>
+    public async Task<string?> CreatePostAsync(IPage page, string text, CancellationToken ct = default)
     {
         var createBtn = page.Locator(ThreadsSelectors.CreateButton).First;
         if (await createBtn.CountAsync() == 0)
-            return false;
+            return null;
 
         await createBtn.ClickAsync();
         await _delay.WaitAsync(1500, 3000, ct);
@@ -455,7 +460,46 @@ public class ThreadsActions
         await postBtn.ClickAsync();
         await _delay.WaitAsync(3000, 6000, ct);
 
-        return true;
+        // Best-effort URL recovery: find the article containing the just-posted
+        // text and grab its /post/ link. Works in the typical case where the
+        // composer closes back onto the feed/profile and the new post renders.
+        return await FindNewlyPostedUrlAsync(page, text, ct);
+    }
+
+    private async Task<string?> FindNewlyPostedUrlAsync(IPage page, string postedText, CancellationToken ct)
+    {
+        // Threads' has-text is very sensitive to length / special chars — use a
+        // short snippet of the post that's unlikely to collide with nearby UI.
+        var snippet = postedText.Length > 60 ? postedText[..60] : postedText;
+        snippet = snippet.Replace("\"", "\\\"");
+
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
+        {
+            try
+            {
+                var article = page.Locator($"article:has-text(\"{snippet}\")").First;
+                if (await article.CountAsync() > 0)
+                {
+                    var link = article.Locator("a[href*='/post/']").First;
+                    if (await link.CountAsync() > 0)
+                    {
+                        var href = await link.GetAttributeAsync("href");
+                        if (!string.IsNullOrWhiteSpace(href))
+                        {
+                            return href.StartsWith("http")
+                                ? href
+                                : $"https://www.threads.net{href}";
+                        }
+                    }
+                }
+            }
+            catch { /* transient DOM / selector hiccup */ }
+
+            await _delay.WaitAsync(800, 1400, ct);
+        }
+
+        return null;
     }
 
     // ── Repost ──
