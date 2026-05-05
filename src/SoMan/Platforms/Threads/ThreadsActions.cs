@@ -143,84 +143,159 @@ public class ThreadsActions
             dbg.Append($"textTyped(len={text.Length}); ");
             await _delay.WaitAsync(800, 1500, ct);
 
-            // Resolve the Post button. Exact-match on "Post" so we never grab "Repost",
-            // "Post text" hint labels, or page-wide nav items.
-            ILocator postBtn = (hasDialog ? dialog : (ILocator)page.Locator("body"))
-                .Locator("button, [role='button']")
-                .Filter(new() { HasTextRegex = PostButtonTextRegex });
-
-            int scopedCount = await postBtn.CountAsync();
-            dbg.Append($"scopedPostBtn={scopedCount}; ");
-
-            if (scopedCount == 0)
+            // Helper: confirm the reply composer actually closed. This is the only
+            // reliable success signal — the prior code used InputValueAsync which
+            // returns "" for contenteditable, plus a page-wide text search that
+            // matched the *typed* text in the still-open composer (false positive).
+            async Task<bool> WaitForComposerClosedAsync(int seconds)
             {
-                // Last-resort fallback to legacy broad selectors.
-                postBtn = page.Locator(ThreadsSelectors.ReplyPostButton);
-                dbg.Append($"fallbackPostBtn={await postBtn.CountAsync()}; ");
-            }
-
-            postBtn = postBtn.Last;
-
-            await postBtn.WaitForAsync(new() { Timeout = ThreadsConstants.ElementWaitTimeout });
-            await postBtn.ScrollIntoViewIfNeededAsync();
-            dbg.Append("postBtnReady; ");
-
-            // Wait until the Post button is actually enabled. Threads keeps it
-            // aria-disabled until the input event registers — clicking it while
-            // disabled silently no-ops, which is the symptom users see.
-            var enabledUntil = DateTime.UtcNow.AddSeconds(8);
-            bool isEnabled = false;
-            while (DateTime.UtcNow < enabledUntil && !ct.IsCancellationRequested)
-            {
-                bool disabled = false;
-                try
-                {
-                    var ariaDisabled = await postBtn.GetAttributeAsync("aria-disabled");
-                    if (ariaDisabled == "true") disabled = true;
-                }
-                catch { }
-
-                if (!disabled)
+                var until = DateTime.UtcNow.AddSeconds(seconds);
+                while (DateTime.UtcNow < until && !ct.IsCancellationRequested)
                 {
                     try
                     {
-                        if (await postBtn.IsDisabledAsync()) disabled = true;
+                        if (hasDialog)
+                        {
+                            int dlgCount = await dialog.CountAsync();
+                            if (dlgCount == 0) return true;
+                            if (!await dialog.IsVisibleAsync()) return true;
+                        }
+                        else
+                        {
+                            // No dialog scope: fall back to the textbox visibility / content.
+                            var editor = page.Locator(ThreadsSelectors.ReplyTextArea).Last;
+                            if (await editor.CountAsync() == 0) return true;
+                            if (!await editor.IsVisibleAsync()) return true;
+                            // contenteditable: use InnerText, not InputValue.
+                            var txt = await editor.InnerTextAsync();
+                            if (string.IsNullOrWhiteSpace(txt)) return true;
+                        }
                     }
-                    catch { }
+                    catch
+                    {
+                        // DOM mutated under us — treat as closed.
+                        return true;
+                    }
+                    await _delay.WaitAsync(300, 600, ct);
                 }
-
-                if (!disabled)
-                {
-                    isEnabled = true;
-                    break;
-                }
-
-                await _delay.WaitAsync(200, 400, ct);
+                return false;
             }
-            dbg.Append($"postBtnEnabled={isEnabled}; ");
 
-            bool clicked = false;
+            bool submitted = false;
 
-            // Attempt 1: normal click
+            // Strategy 1 (PRIMARY): Ctrl+Enter on the focused composer.
+            // Threads supports this shortcut and it bypasses every button-click
+            // pitfall (wrong element, React onClick not firing, overlay catching
+            // the click, aria-disabled mismatch, etc.).
             try
             {
-                await postBtn.ClickAsync(new() { Timeout = 5000 });
-                dbg.Append("click=normal_ok; ");
-                clicked = true;
+                await textArea.PressAsync("Control+Enter");
+                dbg.Append("submit=ctrl_enter_sent; ");
+                if (await WaitForComposerClosedAsync(6))
+                {
+                    dbg.Append("submit=ctrl_enter_ok; ");
+                    submitted = true;
+                }
             }
-            catch (Exception ex1)
+            catch (Exception exCe)
             {
-                dbg.Append($"click=normal_fail({ex1.Message}); ");
+                dbg.Append($"submit=ctrl_enter_fail({exCe.Message}); ");
             }
 
-            // Attempt 2: force click
-            if (!clicked)
+            // Resolve the Post button (used by all click-based fallbacks). Prefer
+            // accessible-role lookup, fall back to text-regex match. Scope to the
+            // dialog so we never grab nav links or unrelated "Post" elements.
+            ILocator scope = hasDialog ? dialog : page.Locator("body");
+            ILocator postBtn = scope.GetByRole(AriaRole.Button, new()
+            {
+                Name = "Post",
+                Exact = true
+            });
+            int byRoleCount = await postBtn.CountAsync();
+            dbg.Append($"postBtnByRole={byRoleCount}; ");
+            if (byRoleCount == 0)
+            {
+                postBtn = scope
+                    .Locator("button, [role='button']")
+                    .Filter(new() { HasTextRegex = PostButtonTextRegex });
+                int byTextCount = await postBtn.CountAsync();
+                dbg.Append($"postBtnByText={byTextCount}; ");
+                if (byTextCount == 0)
+                {
+                    postBtn = page.Locator(ThreadsSelectors.ReplyPostButton);
+                    dbg.Append($"postBtnFallback={await postBtn.CountAsync()}; ");
+                }
+            }
+            postBtn = postBtn.Last;
+
+            // If Ctrl+Enter didn't close the dialog, fall through to button clicks.
+            if (!submitted)
+            {
+                try
+                {
+                    await postBtn.WaitForAsync(new() { Timeout = ThreadsConstants.ElementWaitTimeout });
+                    await postBtn.ScrollIntoViewIfNeededAsync();
+                    dbg.Append("postBtnReady; ");
+                }
+                catch (Exception exReady)
+                {
+                    dbg.Append($"postBtnReadyFail({exReady.Message}); ");
+                }
+
+                // Wait until the Post button is actually enabled (Threads holds
+                // aria-disabled='true' until the React input event registers).
+                var enabledUntil = DateTime.UtcNow.AddSeconds(6);
+                bool isEnabled = false;
+                while (DateTime.UtcNow < enabledUntil && !ct.IsCancellationRequested)
+                {
+                    bool disabled = false;
+                    try
+                    {
+                        var ariaDisabled = await postBtn.GetAttributeAsync("aria-disabled");
+                        if (ariaDisabled == "true") disabled = true;
+                    }
+                    catch { }
+                    if (!disabled)
+                    {
+                        try { if (await postBtn.IsDisabledAsync()) disabled = true; } catch { }
+                    }
+                    if (!disabled) { isEnabled = true; break; }
+                    await _delay.WaitAsync(200, 400, ct);
+                }
+                dbg.Append($"postBtnEnabled={isEnabled}; ");
+            }
+
+            // Strategy 2: normal click
+            if (!submitted)
+            {
+                try
+                {
+                    await postBtn.ClickAsync(new() { Timeout = 5000 });
+                    dbg.Append("click=normal_sent; ");
+                    if (await WaitForComposerClosedAsync(5))
+                    {
+                        dbg.Append("submit=normal_ok; ");
+                        submitted = true;
+                    }
+                }
+                catch (Exception ex1)
+                {
+                    dbg.Append($"click=normal_fail({ex1.Message}); ");
+                }
+            }
+
+            // Strategy 3: force click
+            if (!submitted)
             {
                 try
                 {
                     await postBtn.ClickAsync(new() { Force = true, Timeout = 5000 });
-                    dbg.Append("click=force_ok; ");
-                    clicked = true;
+                    dbg.Append("click=force_sent; ");
+                    if (await WaitForComposerClosedAsync(5))
+                    {
+                        dbg.Append("submit=force_ok; ");
+                        submitted = true;
+                    }
                 }
                 catch (Exception ex2)
                 {
@@ -228,8 +303,8 @@ public class ThreadsActions
                 }
             }
 
-            // Attempt 3: click by coordinate center
-            if (!clicked)
+            // Strategy 4: click by mouse coordinate at the button's center
+            if (!submitted)
             {
                 try
                 {
@@ -239,8 +314,12 @@ public class ThreadsActions
                         var cx = box.X + (box.Width / 2);
                         var cy = box.Y + (box.Height / 2);
                         await page.Mouse.ClickAsync(cx, cy);
-                        dbg.Append($"click=coord_ok({cx:F1},{cy:F1},{box.Width:F1}x{box.Height:F1}); ");
-                        clicked = true;
+                        dbg.Append($"click=coord_sent({cx:F1},{cy:F1}); ");
+                        if (await WaitForComposerClosedAsync(5))
+                        {
+                            dbg.Append("submit=coord_ok; ");
+                            submitted = true;
+                        }
                     }
                     else
                     {
@@ -253,73 +332,28 @@ public class ThreadsActions
                 }
             }
 
-            // Attempt 4: Ctrl+Enter on the composer (Threads' submit shortcut)
-            if (!clicked)
+            // Strategy 5: invoke .click() in-page via JS — bypasses every Playwright
+            // actionability gate and any overlay that swallows the synthetic click.
+            if (!submitted)
             {
                 try
                 {
-                    await textArea.PressAsync("Control+Enter");
-                    dbg.Append("click=ctrl_enter_ok; ");
-                    clicked = true;
+                    await postBtn.EvaluateAsync<object>("el => el.click()");
+                    dbg.Append("click=js_sent; ");
+                    if (await WaitForComposerClosedAsync(5))
+                    {
+                        dbg.Append("submit=js_ok; ");
+                        submitted = true;
+                    }
                 }
                 catch (Exception ex4)
                 {
-                    dbg.Append($"click=ctrl_enter_fail({ex4.Message}); ");
+                    dbg.Append($"click=js_fail({ex4.Message}); ");
                 }
             }
 
-            // Give time for submit transition
-            await _delay.WaitAsync(2000, 4000, ct);
-
-            // Ensure editor closes / returns to post page state
-            bool editorStillVisible = false;
-            string currentValue = string.Empty;
-            try
-            {
-                var editor = page.Locator(ThreadsSelectors.ReplyTextArea).Last;
-                editorStillVisible = await editor.IsVisibleAsync();
-                currentValue = await editor.InputValueAsync();
-            }
-            catch
-            {
-                // editor likely gone (good)
-            }
-
-            bool uiReturnedToPost = !editorStillVisible || string.IsNullOrWhiteSpace(currentValue);
-            dbg.Append($"uiReturnedToPost={uiReturnedToPost}; editorVisible={editorStillVisible}; textLen={currentValue.Length}; ");
-
-            if (!clicked || !uiReturnedToPost)
-                throw new Exception($"{dbg}post submit click/transition not confirmed");
-
-            // Strict success criteria:
-            // Wait until posted comment text appears on page (exact match), max 30s
-            string escaped = EscapeForTextSelector(text);
-            var postedComment = page.Locator($"text=\"{escaped}\"").First;
-
-            bool appeared = false;
-            var waitUntil = DateTime.UtcNow.AddSeconds(30);
-            while (DateTime.UtcNow < waitUntil && !ct.IsCancellationRequested)
-            {
-                try
-                {
-                    if (await postedComment.CountAsync() > 0 && await postedComment.IsVisibleAsync())
-                    {
-                        appeared = true;
-                        break;
-                    }
-                }
-                catch
-                {
-                    // ignore transient DOM issues
-                }
-
-                await _delay.WaitAsync(800, 1500, ct);
-            }
-
-            dbg.Append($"commentAppeared={appeared}; ");
-
-            if (!appeared)
-                throw new Exception($"{dbg}comment not visible after submit within timeout");
+            if (!submitted)
+                throw new Exception($"{dbg}post submit not confirmed — composer still open after every strategy");
 
             return true;
         }
@@ -636,8 +670,4 @@ public class ThreadsActions
         }
     }
 
-    private static string EscapeForTextSelector(string text)
-    {
-        return text.Replace("\\", "\\\\").Replace("\"", "\\\"");
-    }
 }
