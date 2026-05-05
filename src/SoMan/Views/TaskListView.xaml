@@ -27,28 +27,55 @@
                                   DisplayMemberPath="Name"
                                   Style="{StaticResource MaterialDesignOutlinedComboBox}" Margin="0,0,12,0"/>
 
-                        <!-- Account multi-select picker — toggle drives popup visibility.
-                             Plain ToggleButton (no MD style) so it looks like an outlined combo. -->
-                        <ToggleButton x:Name="AccountPickerToggle" Grid.Column="1"
-                                      Margin="0,0,12,0" Padding="12,0" Height="40"
-                                      HorizontalContentAlignment="Stretch"
-                                      Background="Transparent"
-                                      BorderBrush="{DynamicResource MaterialDesignDivider}"
-                                      BorderThickness="1"
-                                      IsChecked="{Binding IsAccountPickerOpen, Mode=TwoWay}"
-                                      ToolTip="Pick accounts and/or categories">
-                            <Grid HorizontalAlignment="Stretch" Width="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=ToggleButton}}">
+                        <!-- Account multi-select picker — clickable Border that opens the
+                             popup. Using Border + MouseBinding (rather than a styled
+                             ToggleButton) avoids inheriting the OS button theme, which on
+                             dark MaterialDesign was rendering the toggle's text in black-
+                             on-dark-card so it looked empty. Explicit foreground/border. -->
+                        <Border x:Name="AccountPickerToggle" Grid.Column="1"
+                                Margin="0,0,12,0"
+                                MinHeight="56"
+                                Background="Transparent"
+                                BorderBrush="{DynamicResource MaterialDesignDivider}"
+                                BorderThickness="1.5"
+                                CornerRadius="4"
+                                Cursor="Hand"
+                                ToolTip="Pick accounts and/or categories">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Style.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="BorderBrush" Value="{DynamicResource PrimaryHueMidBrush}"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Border.InputBindings>
+                                <MouseBinding Gesture="LeftClick"
+                                              Command="{Binding OpenAccountPickerCommand}"/>
+                            </Border.InputBindings>
+                            <Grid Margin="12,8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="{Binding AccountSelectionSummary}"
-                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                                           Margin="4,0,0,0"/>
-                                <materialDesign:PackIcon Grid.Column="1" Kind="MenuDown" VerticalAlignment="Center"
-                                                         Margin="0,0,4,0"/>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <TextBlock Text="Accounts" FontSize="10" Opacity="0.6"
+                                               Foreground="{DynamicResource MaterialDesignBody}"
+                                               Margin="0,0,0,2"/>
+                                    <TextBlock Text="{Binding AccountSelectionSummary}"
+                                               FontSize="14" FontWeight="Medium"
+                                               Foreground="{DynamicResource MaterialDesignBody}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                                <materialDesign:PackIcon Grid.Column="1" Kind="MenuDown"
+                                                         Width="22" Height="22"
+                                                         Foreground="{DynamicResource MaterialDesignBody}"
+                                                         VerticalAlignment="Center"
+                                                         Margin="8,0,4,0"
+                                                         Opacity="0.7"/>
                             </Grid>
-                        </ToggleButton>
+                        </Border>
 
                         <!-- Popup floats over the toggle and contains the Categories/Accounts tabs -->
                         <Popup PlacementTarget="{Binding ElementName=AccountPickerToggle}"
