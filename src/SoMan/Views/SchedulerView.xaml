@@ -4,23 +4,268 @@
              xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SoMan.ViewModels"
              mc:Ignorable="d">
-    <DockPanel Margin="24">
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,20">
-            <TextBlock Text="Scheduler" FontSize="24" FontWeight="Bold" VerticalAlignment="Center" />
-            <Button Style="{StaticResource MaterialDesignRaisedButton}"
-                    Content="+ New Schedule" Margin="20,0,0,0"
-                    materialDesign:ButtonAssist.CornerRadius="4" />
-        </StackPanel>
-        <materialDesign:Card Padding="20">
-            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                <materialDesign:PackIcon Kind="CalendarClockOutline" Width="64" Height="64"
-                                         HorizontalAlignment="Center" Opacity="0.3" />
-                <TextBlock Text="No schedules yet" FontSize="18" HorizontalAlignment="Center"
-                           Margin="0,12,0,4" Opacity="0.5" />
-                <TextBlock Text="Create schedules to run templates automatically at set times"
-                           HorizontalAlignment="Center" Opacity="0.3" />
+    <Grid>
+        <DockPanel Margin="24">
+            <!-- Header -->
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,20">
+                <TextBlock Text="Scheduler" FontSize="24" FontWeight="Bold" VerticalAlignment="Center" />
+                <Button Style="{StaticResource MaterialDesignRaisedButton}"
+                        Content="+ New Schedule" Margin="20,0,0,0"
+                        Command="{Binding NewScheduleCommand}"
+                        materialDesign:ButtonAssist.CornerRadius="4" />
+                <TextBlock Text="{Binding StatusMessage}" Margin="20,0,0,0"
+                           FontSize="12" Opacity="0.7" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding ErrorMessage}" Margin="20,0,0,0"
+                           FontSize="12" Foreground="#EF5350" VerticalAlignment="Center"
+                           Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibility}}"/>
             </StackPanel>
-        </materialDesign:Card>
-    </DockPanel>
+
+            <!-- Empty state -->
+            <materialDesign:Card Padding="20" DockPanel.Dock="Top"
+                                 Visibility="{Binding Schedules.Count, Converter={StaticResource CountToVisibility}, ConverterParameter=Invert}">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <materialDesign:PackIcon Kind="CalendarClockOutline" Width="64" Height="64"
+                                             HorizontalAlignment="Center" Opacity="0.3" />
+                    <TextBlock Text="No schedules yet" FontSize="18" HorizontalAlignment="Center"
+                               Margin="0,12,0,4" Opacity="0.5" />
+                    <TextBlock Text="Create schedules to run templates automatically at set times"
+                               HorizontalAlignment="Center" Opacity="0.3" />
+                </StackPanel>
+            </materialDesign:Card>
+
+            <!-- Schedule list -->
+            <materialDesign:Card Padding="8"
+                                 Visibility="{Binding Schedules.Count, Converter={StaticResource CountToVisibility}}">
+                <DataGrid ItemsSource="{Binding Schedules}"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          HeadersVisibility="Column"
+                          GridLinesVisibility="Horizontal"
+                          RowHeaderWidth="0"
+                          SelectionMode="Single"
+                          Style="{StaticResource MaterialDesignDataGrid}">
+                    <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="Enabled" Width="80">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <CheckBox IsChecked="{Binding IsEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              Command="{Binding DataContext.ToggleEnabledCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              CommandParameter="{Binding}"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="Name" Binding="{Binding Entity.Name}" Width="*"/>
+                        <DataGridTextColumn Header="Template" Binding="{Binding TemplateName}" Width="*"/>
+                        <DataGridTextColumn Header="Accounts" Binding="{Binding AccountsSummary}" Width="*"/>
+                        <DataGridTextColumn Header="Schedule" Binding="{Binding ScheduleDescription}" Width="1.3*"/>
+                        <DataGridTextColumn Header="Last Run" Binding="{Binding LastRunDisplay}" Width="140"/>
+                        <DataGridTextColumn Header="Next Run" Binding="{Binding NextRunDisplay}" Width="140"/>
+                        <DataGridTemplateColumn Header="Actions" Width="220">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button Style="{StaticResource MaterialDesignFlatButton}"
+                                                Content="▶ Run"
+                                                Command="{Binding DataContext.RunNowCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip="Run this schedule now"/>
+                                        <Button Style="{StaticResource MaterialDesignFlatButton}"
+                                                Content="Edit"
+                                                Command="{Binding DataContext.EditScheduleCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"/>
+                                        <Button Style="{StaticResource MaterialDesignFlatButton}"
+                                                Content="Delete" Foreground="IndianRed"
+                                                Command="{Binding DataContext.DeleteScheduleCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </materialDesign:Card>
+        </DockPanel>
+
+        <!-- Modal backdrop + dialog -->
+        <Grid Background="#99000000"
+              Visibility="{Binding IsEditDialogOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <materialDesign:Card Width="760" MaxHeight="720"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center"
+                                 Padding="0">
+                <DockPanel>
+                    <!-- Title -->
+                    <Border DockPanel.Dock="Top" Padding="20,16" Background="{DynamicResource PrimaryHueMidBrush}">
+                        <TextBlock Text="{Binding DialogTitle}" FontSize="18" FontWeight="Medium"
+                                   Foreground="{DynamicResource PrimaryHueMidForegroundBrush}"/>
+                    </Border>
+
+                    <!-- Footer buttons -->
+                    <Border DockPanel.Dock="Bottom" Padding="20,12"
+                            BorderBrush="{DynamicResource MaterialDesignDivider}" BorderThickness="0,1,0,0">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Left" Text="{Binding ErrorMessage}"
+                                       Foreground="#EF5350" VerticalAlignment="Center"
+                                       Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibility}}"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <CheckBox Content="Enabled" IsChecked="{Binding EnableOnSave}"
+                                          Margin="0,0,16,0" VerticalAlignment="Center"/>
+                                <Button Style="{StaticResource MaterialDesignFlatButton}"
+                                        Content="Cancel" Command="{Binding CancelEditCommand}"/>
+                                <Button Style="{StaticResource MaterialDesignRaisedButton}"
+                                        Content="Save" Margin="8,0,0,0"
+                                        Command="{Binding SaveCommand}"
+                                        materialDesign:ButtonAssist.CornerRadius="4"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Body -->
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="20,16">
+
+                            <!-- Name -->
+                            <TextBox Text="{Binding EditName, UpdateSourceTrigger=PropertyChanged}"
+                                     Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     materialDesign:HintAssist.Hint="Schedule name (e.g. Morning promo)"
+                                     Margin="0,0,0,12"/>
+
+                            <!-- Template -->
+                            <ComboBox ItemsSource="{Binding AvailableTemplates}"
+                                      SelectedItem="{Binding SelectedTemplate}"
+                                      DisplayMemberPath="Name"
+                                      Style="{StaticResource MaterialDesignOutlinedComboBox}"
+                                      materialDesign:HintAssist.Hint="Template"
+                                      Margin="0,0,0,16"/>
+
+                            <!-- Schedule section -->
+                            <TextBlock Text="When to run" FontSize="13" FontWeight="Medium"
+                                       Opacity="0.8" Margin="0,0,0,6"/>
+                            <Grid Margin="0,0,0,12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="220"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <ComboBox Grid.Column="0"
+                                          ItemsSource="{Binding AllPresets}"
+                                          SelectedItem="{Binding SelectedPreset}"
+                                          Style="{StaticResource MaterialDesignOutlinedComboBox}"
+                                          materialDesign:HintAssist.Hint="Preset"/>
+
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="Time" VerticalAlignment="Center" Margin="0,0,8,0" Opacity="0.7"/>
+                                    <TextBox Text="{Binding TimeHour, UpdateSourceTrigger=PropertyChanged}"
+                                             Width="56" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                             materialDesign:HintAssist.Hint="HH"/>
+                                    <TextBlock Text=":" VerticalAlignment="Center" Margin="6,0" FontSize="16"/>
+                                    <TextBox Text="{Binding TimeMinute, UpdateSourceTrigger=PropertyChanged}"
+                                             Width="56" Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                             materialDesign:HintAssist.Hint="MM"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Day-of-week checkboxes (used by WeeklyAtTime) -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                <TextBlock Text="Days" VerticalAlignment="Center" Opacity="0.7" Margin="0,0,12,0"/>
+                                <CheckBox Content="Mon" IsChecked="{Binding DayMonday}"    Margin="0,0,8,0"/>
+                                <CheckBox Content="Tue" IsChecked="{Binding DayTuesday}"   Margin="0,0,8,0"/>
+                                <CheckBox Content="Wed" IsChecked="{Binding DayWednesday}" Margin="0,0,8,0"/>
+                                <CheckBox Content="Thu" IsChecked="{Binding DayThursday}"  Margin="0,0,8,0"/>
+                                <CheckBox Content="Fri" IsChecked="{Binding DayFriday}"    Margin="0,0,8,0"/>
+                                <CheckBox Content="Sat" IsChecked="{Binding DaySaturday}"  Margin="0,0,8,0"/>
+                                <CheckBox Content="Sun" IsChecked="{Binding DaySunday}"/>
+                            </StackPanel>
+
+                            <!-- Advanced cron -->
+                            <Expander Header="Advanced (raw cron expression)"
+                                      Background="Transparent"
+                                      BorderBrush="{DynamicResource MaterialDesignDivider}"
+                                      BorderThickness="1"
+                                      Margin="0,0,0,12">
+                                <StackPanel Margin="12,8,12,12">
+                                    <TextBlock FontSize="11" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,6"
+                                               Text="Only used when preset is 'Custom'. Quartz cron format: sec min hour day-of-month month day-of-week. Specify '?' for whichever of day-of-month/day-of-week you are not using."/>
+                                    <TextBox Text="{Binding CustomCron, UpdateSourceTrigger=PropertyChanged}"
+                                             Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                             materialDesign:HintAssist.Hint="Cron expression"
+                                             FontFamily="Consolas, Courier New, monospace"/>
+                                </StackPanel>
+                            </Expander>
+
+                            <!-- Live preview -->
+                            <Border Background="{DynamicResource MaterialDesignChipBackground}"
+                                    CornerRadius="4" Padding="12,8" Margin="0,0,0,16">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding PreviewDescription}" FontSize="13" FontWeight="Medium"/>
+                                    <TextBlock FontSize="11" Opacity="0.7" Margin="0,2,0,0">
+                                        <Run Text="Next run: "/>
+                                        <Run Text="{Binding PreviewNextRun, Mode=OneWay}"/>
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding CronError}" Foreground="#EF5350" FontSize="11" Margin="0,4,0,0"
+                                               Visibility="{Binding CronError, Converter={StaticResource NullToVisibility}}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Accounts + Categories pick -->
+                            <TextBlock Text="Who to run for" FontSize="13" FontWeight="Medium"
+                                       Opacity="0.8" Margin="0,0,0,6"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Categories -->
+                                <Border Grid.Column="0" BorderBrush="{DynamicResource MaterialDesignDivider}"
+                                        BorderThickness="1" CornerRadius="4" Margin="0,0,6,0">
+                                    <DockPanel>
+                                        <TextBlock DockPanel.Dock="Top" Text="Categories"
+                                                   FontSize="12" FontWeight="Medium" Opacity="0.8"
+                                                   Padding="10,8"/>
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="180">
+                                            <ItemsControl ItemsSource="{Binding AvailableCategoryPicks}" Margin="10,0,10,8">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <CheckBox Content="{Binding Label}"
+                                                                  IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                                  Margin="0,2"/>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+                                    </DockPanel>
+                                </Border>
+
+                                <!-- Accounts -->
+                                <Border Grid.Column="1" BorderBrush="{DynamicResource MaterialDesignDivider}"
+                                        BorderThickness="1" CornerRadius="4" Margin="6,0,0,0">
+                                    <DockPanel>
+                                        <TextBlock DockPanel.Dock="Top" Text="Accounts (active only)"
+                                                   FontSize="12" FontWeight="Medium" Opacity="0.8"
+                                                   Padding="10,8"/>
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="180">
+                                            <ItemsControl ItemsSource="{Binding AvailableAccountPicks}" Margin="10,0,10,8">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <CheckBox Content="{Binding Label}"
+                                                                  IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                                  Margin="0,2"/>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+                                    </DockPanel>
+                                </Border>
+                            </Grid>
+
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </materialDesign:Card>
+        </Grid>
+    </Grid>
 </UserControl>

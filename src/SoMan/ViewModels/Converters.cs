@@ -60,9 +60,16 @@ public class CountToVisibilityConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
+        bool invert = parameter is string s
+            && s.Equals("Invert", StringComparison.OrdinalIgnoreCase);
+
         if (value is int count)
-            return count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        return Visibility.Collapsed;
+        {
+            bool hasItems = count > 0;
+            if (invert) hasItems = !hasItems;
+            return hasItems ? Visibility.Visible : Visibility.Collapsed;
+        }
+        return invert ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
