@@ -96,6 +96,27 @@ public partial class TemplateEditorViewModel : ViewModelBase
     [ObservableProperty]
     private bool _paramInteract;
 
+    // ── Advanced (raw JSON) editor for step parameters ──
+    // When IsAdvancedJsonExpanded is true the user sees a textbox containing the
+    // raw ParametersJson and can edit any field (including ones the form doesn't
+    // surface). The form fields and JSON stay in lockstep — editing one updates
+    // the other — and AdvancedParamsJson is the source of truth at Save time so
+    // unknown fields the user adds in JSON are preserved.
+    [ObservableProperty]
+    private bool _isAdvancedJsonExpanded;
+
+    [ObservableProperty]
+    private string _advancedParamsJson = "{}";
+
+    [ObservableProperty]
+    private string? _advancedJsonError;
+
+    // Internal guards to prevent JSON↔form sync from feedback-looping
+    private bool _suppressFormToJson;
+    private bool _suppressJsonToForm;
+
+    private bool CanSaveStep() => string.IsNullOrEmpty(AdvancedJsonError);
+
     [ObservableProperty]
     private string _statusMessage = string.Empty;
 
@@ -231,6 +252,9 @@ public partial class TemplateEditorViewModel : ViewModelBase
         FormStepDelayMin = 3000;
         FormStepDelayMax = 10000;
         ClearStepParams();
+        IsAdvancedJsonExpanded = false;
+        AdvancedJsonError = null;
+        AdvancedParamsJson = BuildParametersJson();
         IsStepDialogOpen = true;
     }
 
@@ -244,15 +268,32 @@ public partial class TemplateEditorViewModel : ViewModelBase
         FormStepDelayMin = SelectedStep.DelayMinMs;
         FormStepDelayMax = SelectedStep.DelayMaxMs;
         LoadStepParams(SelectedStep.ParametersJson);
+        IsAdvancedJsonExpanded = false;
+        AdvancedJsonError = null;
+        // Pretty-print the existing JSON so it's easier to edit.
+        AdvancedParamsJson = PrettyPrintJson(SelectedStep.ParametersJson);
         IsStepDialogOpen = true;
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanSaveStep))]
     private async Task SaveStepAsync()
     {
         if (SelectedTemplate == null) return;
 
-        string paramsJson = BuildParametersJson();
+        // Source of truth: the AdvancedParamsJson, which we keep in lockstep with
+        // the form fields. Re-validate one last time before saving.
+        string paramsJson;
+        try
+        {
+            using var _ = JsonDocument.Parse(AdvancedParamsJson);
+            paramsJson = AdvancedParamsJson;
+        }
+        catch
+        {
+            // Fallback to a fresh build from form fields if the JSON is somehow
+            // invalid at save time (CanExecute should have prevented this).
+            paramsJson = BuildParametersJson();
+        }
 
         try
         {
@@ -370,6 +411,107 @@ public partial class TemplateEditorViewModel : ViewModelBase
                 ParamInteract = ir.ValueKind == JsonValueKind.True;
         }
         catch { /* ignore parse errors */ }
+    }
+
+    // ── Form ↔ JSON sync ──
+
+    // Any form-side change re-builds the JSON, preserving any unknown fields
+    // the user may have added in the advanced editor.
+    partial void OnFormStepActionTypeChanged(ActionType value) => SyncFormToJson();
+    partial void OnParamCountChanged(int value) => SyncFormToJson();
+    partial void OnParamDurationSecondsChanged(int value) => SyncFormToJson();
+    partial void OnParamTextsChanged(string value) => SyncFormToJson();
+    partial void OnParamUsernameChanged(string value) => SyncFormToJson();
+    partial void OnParamPostTextChanged(string value) => SyncFormToJson();
+    partial void OnParamKeywordChanged(string value) => SyncFormToJson();
+    partial void OnParamInteractChanged(bool value) => SyncFormToJson();
+
+    // JSON-side edits validate, surface errors, and refresh the form when valid.
+    partial void OnAdvancedParamsJsonChanged(string value)
+    {
+        if (_suppressJsonToForm) return;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(value);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                AdvancedJsonError = "Top-level value must be a JSON object.";
+                return;
+            }
+            AdvancedJsonError = null;
+
+            _suppressFormToJson = true;
+            try { LoadStepParams(value); }
+            finally { _suppressFormToJson = false; }
+        }
+        catch (JsonException ex)
+        {
+            AdvancedJsonError = $"Invalid JSON: {ex.Message}";
+        }
+    }
+
+    partial void OnAdvancedJsonErrorChanged(string? value)
+    {
+        SaveStepCommand.NotifyCanExecuteChanged();
+    }
+
+    private void SyncFormToJson()
+    {
+        if (_suppressFormToJson) return;
+
+        // Merge: start from any unknown keys in the current AdvancedParamsJson,
+        // then overlay form-derived keys so the form is the source of truth for
+        // surfaced fields while extras the user added in JSON survive.
+        var merged = new Dictionary<string, object?>();
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(AdvancedParamsJson) ? "{}" : AdvancedParamsJson);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                    merged[prop.Name] = JsonElementToObject(prop.Value);
+            }
+        }
+        catch { /* if current JSON is invalid, just rebuild from scratch */ }
+
+        var fresh = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(BuildParametersJson());
+        if (fresh != null)
+        {
+            foreach (var kv in fresh)
+                merged[kv.Key] = JsonElementToObject(kv.Value);
+        }
+
+        _suppressJsonToForm = true;
+        try
+        {
+            AdvancedParamsJson = JsonSerializer.Serialize(merged, new JsonSerializerOptions { WriteIndented = true });
+            AdvancedJsonError = null;
+        }
+        finally { _suppressJsonToForm = false; }
+    }
+
+    private static object? JsonElementToObject(JsonElement el) => el.ValueKind switch
+    {
+        JsonValueKind.String => el.GetString(),
+        JsonValueKind.Number => el.TryGetInt64(out var l) ? (object)l : el.GetDouble(),
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        JsonValueKind.Null => null,
+        JsonValueKind.Array => el.EnumerateArray().Select(JsonElementToObject).ToArray(),
+        JsonValueKind.Object => el.EnumerateObject().ToDictionary(p => p.Name, p => JsonElementToObject(p.Value)),
+        _ => el.ToString(),
+    };
+
+    private static string PrettyPrintJson(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return "{}";
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch { return json; }
     }
 
     private string BuildParametersJson()
