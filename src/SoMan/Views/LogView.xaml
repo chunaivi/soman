@@ -4,23 +4,112 @@
              xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:SoMan.ViewModels"
+             d:DataContext="{d:DesignInstance vm:LogViewModel}"
              mc:Ignorable="d">
     <DockPanel Margin="24">
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,20">
-            <TextBlock Text="Activity Logs" FontSize="24" FontWeight="Bold" VerticalAlignment="Center" />
+        <!-- Header -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
+            <TextBlock Text="Activity Logs" FontSize="24" FontWeight="Bold" VerticalAlignment="Center"/>
+            <Button Style="{StaticResource MaterialDesignFlatButton}"
+                    Content="Refresh" Margin="20,0,0,0"
+                    Command="{Binding RefreshCommand}"
+                    materialDesign:ButtonAssist.CornerRadius="4"/>
             <Button Style="{StaticResource MaterialDesignOutlinedButton}"
-                    Content="Export" Margin="20,0,0,0"
-                    materialDesign:ButtonAssist.CornerRadius="4" />
+                    Content="Export CSV" Margin="8,0,0,0"
+                    Command="{Binding ExportCsvCommand}"
+                    materialDesign:ButtonAssist.CornerRadius="4"/>
+            <TextBlock Text="{Binding StatusMessage}" Margin="20,0,0,0"
+                       FontSize="12" Opacity="0.7" VerticalAlignment="Center"/>
+            <TextBlock Text="{Binding ErrorMessage}" Margin="20,0,0,0"
+                       FontSize="12" Foreground="#EF5350" VerticalAlignment="Center"
+                       Visibility="{Binding ErrorMessage, Converter={StaticResource NullToVisibility}}"/>
         </StackPanel>
-        <materialDesign:Card Padding="20">
+
+        <!-- Filters -->
+        <materialDesign:Card DockPanel.Dock="Top" Padding="12" Margin="0,0,0,12">
+            <StackPanel Orientation="Horizontal">
+                <ComboBox Width="220" Margin="0,0,12,0"
+                          materialDesign:HintAssist.Hint="Account (all)"
+                          ItemsSource="{Binding AvailableAccounts}"
+                          SelectedItem="{Binding FilterAccount}"
+                          DisplayMemberPath="Username"
+                          Style="{StaticResource MaterialDesignOutlinedComboBox}"/>
+                <ComboBox Width="160" Margin="0,0,12,0"
+                          materialDesign:HintAssist.Hint="Result"
+                          ItemsSource="{Binding ResultFilterOptions}"
+                          SelectedItem="{Binding FilterResult}"
+                          Style="{StaticResource MaterialDesignOutlinedComboBox}"/>
+                <Button Style="{StaticResource MaterialDesignFlatButton}"
+                        Content="Clear Filters"
+                        Command="{Binding ClearFiltersCommand}"/>
+            </StackPanel>
+        </materialDesign:Card>
+
+        <!-- Empty state -->
+        <materialDesign:Card Padding="20" DockPanel.Dock="Top"
+                             Visibility="{Binding Logs.Count, Converter={StaticResource CountToVisibility}, ConverterParameter=Invert}">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                 <materialDesign:PackIcon Kind="TextBoxMultipleOutline" Width="64" Height="64"
-                                         HorizontalAlignment="Center" Opacity="0.3" />
+                                         HorizontalAlignment="Center" Opacity="0.3"/>
                 <TextBlock Text="No activity logs" FontSize="18" HorizontalAlignment="Center"
-                           Margin="0,12,0,4" Opacity="0.5" />
+                           Margin="0,12,0,4" Opacity="0.5"/>
                 <TextBlock Text="Activity will be logged here when tasks are executed"
-                           HorizontalAlignment="Center" Opacity="0.3" />
+                           HorizontalAlignment="Center" Opacity="0.3"/>
             </StackPanel>
+        </materialDesign:Card>
+
+        <!-- Logs grid -->
+        <materialDesign:Card Padding="8"
+                             Visibility="{Binding Logs.Count, Converter={StaticResource CountToVisibility}}">
+            <DataGrid ItemsSource="{Binding Logs}"
+                      AutoGenerateColumns="False"
+                      CanUserAddRows="False"
+                      CanUserDeleteRows="False"
+                      IsReadOnly="True"
+                      HeadersVisibility="Column"
+                      GridLinesVisibility="Horizontal"
+                      RowHeaderWidth="0"
+                      SelectionMode="Single"
+                      Style="{StaticResource MaterialDesignDataGrid}">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Time" Width="160"
+                                        Binding="{Binding ExecutedAt, StringFormat='{}{0:yyyy-MM-dd HH:mm:ss}', ConverterCulture=en-US}"/>
+                    <DataGridTextColumn Header="Account" Width="140"
+                                        Binding="{Binding Account.Username}"/>
+                    <DataGridTextColumn Header="Action" Width="120"
+                                        Binding="{Binding ActionType}"/>
+                    <DataGridTextColumn Header="Target" Width="*"
+                                        Binding="{Binding Target}"/>
+                    <DataGridTemplateColumn Header="Result" Width="100">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Border CornerRadius="10" Padding="8,2" HorizontalAlignment="Left">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Background" Value="#555"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Result}" Value="Success">
+                                                    <Setter Property="Background" Value="#2E7D32"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Result}" Value="Failed">
+                                                    <Setter Property="Background" Value="#C62828"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Result}" Value="Skipped">
+                                                    <Setter Property="Background" Value="#6A6A6A"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock Text="{Binding Result}" Foreground="White" FontSize="11"/>
+                                </Border>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="Details" Width="2*"
+                                        Binding="{Binding Details}"/>
+                </DataGrid.Columns>
+            </DataGrid>
         </materialDesign:Card>
     </DockPanel>
 </UserControl>

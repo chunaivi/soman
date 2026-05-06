@@ -23,10 +23,9 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Theme" VerticalAlignment="Center" />
                         <ComboBox Grid.Column="1" Width="200" HorizontalAlignment="Left"
-                                  Style="{StaticResource MaterialDesignOutlinedComboBox}">
-                            <ComboBoxItem Content="Dark" IsSelected="True" />
-                            <ComboBoxItem Content="Light" />
-                        </ComboBox>
+                                  ItemsSource="{Binding ThemeOptions}"
+                                  SelectedItem="{Binding Theme}"
+                                  Style="{StaticResource MaterialDesignOutlinedComboBox}"/>
                     </Grid>
 
                     <Grid Margin="0,0,0,12">
@@ -36,6 +35,7 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Start with Windows" VerticalAlignment="Center" />
                         <ToggleButton Grid.Column="1" HorizontalAlignment="Left"
+                                      IsChecked="{Binding StartWithWindows}"
                                       Style="{StaticResource MaterialDesignSwitchToggleButton}" />
                     </Grid>
 
@@ -45,7 +45,8 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Minimize to Tray" VerticalAlignment="Center" />
-                        <ToggleButton Grid.Column="1" HorizontalAlignment="Left" IsChecked="True"
+                        <ToggleButton Grid.Column="1" HorizontalAlignment="Left"
+                                      IsChecked="{Binding MinimizeToTray}"
                                       Style="{StaticResource MaterialDesignSwitchToggleButton}" />
                     </Grid>
 
@@ -78,10 +79,9 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Default Mode" VerticalAlignment="Center" />
                         <ComboBox Grid.Column="1" Width="200" HorizontalAlignment="Left"
-                                  Style="{StaticResource MaterialDesignOutlinedComboBox}">
-                            <ComboBoxItem Content="Headless" IsSelected="True" />
-                            <ComboBoxItem Content="Headed" />
-                        </ComboBox>
+                                  ItemsSource="{Binding BrowserModeOptions}"
+                                  SelectedItem="{Binding BrowserDefaultMode}"
+                                  Style="{StaticResource MaterialDesignOutlinedComboBox}"/>
                     </Grid>
 
                     <Grid Margin="0,0,0,12">
@@ -91,11 +91,9 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Browser Engine" VerticalAlignment="Center" />
                         <ComboBox Grid.Column="1" Width="200" HorizontalAlignment="Left"
-                                  Style="{StaticResource MaterialDesignOutlinedComboBox}">
-                            <ComboBoxItem Content="Chromium" IsSelected="True" />
-                            <ComboBoxItem Content="Firefox" />
-                            <ComboBoxItem Content="WebKit" />
-                        </ComboBox>
+                                  ItemsSource="{Binding BrowserEngineOptions}"
+                                  SelectedItem="{Binding BrowserEngine}"
+                                  Style="{StaticResource MaterialDesignOutlinedComboBox}"/>
                     </Grid>
 
                     <Grid>
@@ -105,10 +103,9 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Max Concurrent" VerticalAlignment="Center" />
                         <ComboBox Grid.Column="1" Width="200" HorizontalAlignment="Left"
-                                  Style="{StaticResource MaterialDesignOutlinedComboBox}">
-                            <ComboBoxItem Content="Auto (based on resource)" IsSelected="True" />
-                            <ComboBoxItem Content="Manual Override" />
-                        </ComboBox>
+                                  ItemsSource="{Binding MaxConcurrentOptions}"
+                                  SelectedItem="{Binding MaxConcurrent}"
+                                  Style="{StaticResource MaterialDesignOutlinedComboBox}"/>
                     </Grid>
                 </StackPanel>
             </materialDesign:Card>
@@ -126,10 +123,12 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Between Actions" VerticalAlignment="Center" />
-                        <TextBox Grid.Column="1" Width="100" Text="3000"
+                        <TextBox Grid.Column="1" Width="100"
+                                 Text="{Binding DelayBetweenActionsMinMs, UpdateSourceTrigger=PropertyChanged}"
                                  materialDesign:HintAssist.Hint="Min (ms)"
                                  Style="{StaticResource MaterialDesignOutlinedTextBox}" />
-                        <TextBox Grid.Column="3" Width="100" Text="10000"
+                        <TextBox Grid.Column="3" Width="100"
+                                 Text="{Binding DelayBetweenActionsMaxMs, UpdateSourceTrigger=PropertyChanged}"
                                  materialDesign:HintAssist.Hint="Max (ms)"
                                  Style="{StaticResource MaterialDesignOutlinedTextBox}" />
                     </Grid>
@@ -142,10 +141,12 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Between Accounts" VerticalAlignment="Center" />
-                        <TextBox Grid.Column="1" Width="100" Text="5000"
+                        <TextBox Grid.Column="1" Width="100"
+                                 Text="{Binding DelayBetweenAccountsMinMs, UpdateSourceTrigger=PropertyChanged}"
                                  materialDesign:HintAssist.Hint="Min (ms)"
                                  Style="{StaticResource MaterialDesignOutlinedTextBox}" />
-                        <TextBox Grid.Column="3" Width="100" Text="15000"
+                        <TextBox Grid.Column="3" Width="100"
+                                 Text="{Binding DelayBetweenAccountsMaxMs, UpdateSourceTrigger=PropertyChanged}"
                                  materialDesign:HintAssist.Hint="Max (ms)"
                                  Style="{StaticResource MaterialDesignOutlinedTextBox}" />
                     </Grid>
@@ -156,7 +157,8 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Jitter (%)" VerticalAlignment="Center" />
-                        <TextBox Grid.Column="1" Width="100" Text="20" HorizontalAlignment="Left"
+                        <TextBox Grid.Column="1" Width="100" HorizontalAlignment="Left"
+                                 Text="{Binding DelayJitterPercent, UpdateSourceTrigger=PropertyChanged}"
                                  Style="{StaticResource MaterialDesignOutlinedTextBox}" />
                     </Grid>
 
@@ -166,7 +168,8 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Human Simulation" VerticalAlignment="Center" />
-                        <ToggleButton Grid.Column="1" HorizontalAlignment="Left" IsChecked="True"
+                        <ToggleButton Grid.Column="1" HorizontalAlignment="Left"
+                                      IsChecked="{Binding EnableHumanSimulation}"
                                       Style="{StaticResource MaterialDesignSwitchToggleButton}" />
                     </Grid>
                 </StackPanel>
@@ -183,7 +186,8 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Max CPU Usage (%)" VerticalAlignment="Center" />
-                        <TextBox Grid.Column="1" Width="100" Text="85" HorizontalAlignment="Left"
+                        <TextBox Grid.Column="1" Width="100" HorizontalAlignment="Left"
+                                 Text="{Binding MaxCpuPercent, UpdateSourceTrigger=PropertyChanged}"
                                  Style="{StaticResource MaterialDesignOutlinedTextBox}" />
                     </Grid>
 
@@ -193,18 +197,22 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Min Free RAM (%)" VerticalAlignment="Center" />
-                        <TextBox Grid.Column="1" Width="100" Text="20" HorizontalAlignment="Left"
+                        <TextBox Grid.Column="1" Width="100" HorizontalAlignment="Left"
+                                 Text="{Binding MinFreeRamPercent, UpdateSourceTrigger=PropertyChanged}"
                                  Style="{StaticResource MaterialDesignOutlinedTextBox}" />
                     </Grid>
                 </StackPanel>
             </materialDesign:Card>
 
-            <!-- Save Button -->
-            <Button Content="Save Settings" HorizontalAlignment="Right"
-                    Style="{StaticResource MaterialDesignRaisedButton}"
-                    Command="{Binding SaveSettingsCommand}"
-                    materialDesign:ButtonAssist.CornerRadius="4"
-                    Width="150" Margin="0,0,0,16" />
+            <!-- Save Button + status -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,0,16">
+                <TextBlock Text="{Binding ErrorMessage}" VerticalAlignment="Center" Margin="0,0,16,0" Opacity="0.8" FontSize="12"/>
+                <Button Content="Save Settings"
+                        Style="{StaticResource MaterialDesignRaisedButton}"
+                        Command="{Binding SaveSettingsCommand}"
+                        materialDesign:ButtonAssist.CornerRadius="4"
+                        Width="150"/>
+            </StackPanel>
 
             <!-- Category Management -->
             <materialDesign:Card Margin="0,0,0,16" Padding="20">
