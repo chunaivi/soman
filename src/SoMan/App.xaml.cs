@@ -13,6 +13,7 @@ using SoMan.Services.Security;
 using SoMan.Platforms.Threads;
 using SoMan.Services.Template;
 using SoMan.Services.Execution;
+using SoMan.Services.Scheduler;
 using SoMan.ViewModels;
 
 namespace SoMan;
@@ -62,6 +63,16 @@ public partial class App : Application
             ");
         }
 
+        // Start Quartz scheduler and register all enabled ScheduledTasks.
+        var scheduler = _serviceProvider.GetRequiredService<ISchedulerService>();
+        try { await scheduler.StartAsync(); }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"Scheduler failed to start: {ex.Message}\nScheduled tasks will not run this session.",
+                "SoMan Scheduler", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+
         var mainWindow = new MainWindow
         {
             DataContext = _serviceProvider.GetRequiredService<MainViewModel>()
@@ -95,6 +106,10 @@ public partial class App : Application
         services.AddTransient<ITaskPresetService, TaskPresetService>();
         services.AddSingleton<ITaskEngine, TaskEngine>();
 
+        // Scheduler (Quartz). Singleton so the same IScheduler instance lives
+        // for the whole app lifetime.
+        services.AddSingleton<ISchedulerService, SchedulerService>();
+
         // ViewModels
         services.AddSingleton<MainViewModel>();
         services.AddTransient<DashboardViewModel>();
@@ -110,6 +125,10 @@ public partial class App : Application
     {
         if (_serviceProvider != null)
         {
+            var scheduler = _serviceProvider.GetService<ISchedulerService>();
+            if (scheduler != null)
+                await scheduler.ShutdownAsync();
+
             var browserManager = _serviceProvider.GetService<IBrowserManager>();
             if (browserManager != null)
                 await browserManager.DisposeAsync();
