@@ -18,23 +18,52 @@ public partial class TaskListViewModel : ViewModelBase
     private readonly ITaskEngine _taskEngine;
     private readonly ITemplateService _templateService;
     private readonly IAccountService _accountService;
+    private readonly ICategoryService _categoryService;
     private readonly IBrowserManager _browserManager;
     private readonly IConfigService _configService;
+    private readonly ITaskPresetService _presetService;
     private DispatcherTimer? _refreshTimer;
 
     // Available data
     [ObservableProperty]
     private ObservableCollection<ActionTemplate> _templates = new();
 
+    /// <summary>Active accounts wrapped with selection state for the picker.</summary>
     [ObservableProperty]
-    private ObservableCollection<Account> _accounts = new();
+    private ObservableCollection<AccountPick> _accountPicks = new();
+
+    /// <summary>Categories wrapped with their account counts for the picker.</summary>
+    [ObservableProperty]
+    private ObservableCollection<CategoryPick> _categoryPicks = new();
+
+    /// <summary>Saved presets (template + account list).</summary>
+    [ObservableProperty]
+    private ObservableCollection<TaskPreset> _presets = new();
 
     // Selected for execution
     [ObservableProperty]
     private ActionTemplate? _selectedTemplate;
 
     [ObservableProperty]
-    private Account? _selectedAccount;
+    private TaskPreset? _selectedPreset;
+
+    // UI state
+    [ObservableProperty]
+    private bool _isAccountPickerOpen;
+
+    [ObservableProperty]
+    private string _accountSearchText = string.Empty;
+
+    /// <summary>Human-readable summary like "3 accounts selected".</summary>
+    [ObservableProperty]
+    private string _accountSelectionSummary = "No accounts selected";
+
+    // Preset save dialog
+    [ObservableProperty]
+    private bool _isSavePresetDialogOpen;
+
+    [ObservableProperty]
+    private string _presetNameInput = string.Empty;
 
     // Running tasks
     [ObservableProperty]
@@ -51,14 +80,18 @@ public partial class TaskListViewModel : ViewModelBase
         ITaskEngine taskEngine,
         ITemplateService templateService,
         IAccountService accountService,
+        ICategoryService categoryService,
         IBrowserManager browserManager,
-        IConfigService configService)
+        IConfigService configService,
+        ITaskPresetService presetService)
     {
         _taskEngine = taskEngine;
         _templateService = templateService;
         _accountService = accountService;
+        _categoryService = categoryService;
         _browserManager = browserManager;
         _configService = configService;
+        _presetService = presetService;
 
         _taskEngine.ProgressChanged += OnProgressChanged;
     }
@@ -76,13 +109,131 @@ public partial class TaskListViewModel : ViewModelBase
         try
         {
             Templates = new ObservableCollection<ActionTemplate>(await _templateService.GetAllAsync());
+
             var allAccounts = await _accountService.GetAllAsync();
-            Accounts = new ObservableCollection<Account>(allAccounts.Where(a => a.Status == AccountStatus.Active));
+            var activeAccounts = allAccounts.Where(a => a.Status == AccountStatus.Active).ToList();
+
+            // Preserve selection across refresh.
+            var previouslySelected = AccountPicks
+                .Where(p => p.IsSelected)
+                .Select(p => p.Id)
+                .ToHashSet();
+
+            var newPicks = new ObservableCollection<AccountPick>();
+            foreach (var acc in activeAccounts)
+            {
+                var pick = new AccountPick(acc, previouslySelected.Contains(acc.Id));
+                pick.PropertyChanged += OnAccountPickPropertyChanged;
+                newPicks.Add(pick);
+            }
+            AccountPicks = newPicks;
+
+            var categories = await _categoryService.GetAllAsync();
+            var picks = new ObservableCollection<CategoryPick>();
+            foreach (var cat in categories)
+            {
+                int count = activeAccounts.Count(a => a.Categories.Any(m => m.AccountCategoryId == cat.Id));
+                picks.Add(new CategoryPick(cat, count));
+            }
+            CategoryPicks = picks;
+
+            Presets = new ObservableCollection<TaskPreset>(await _presetService.GetAllAsync());
+
+            UpdateAccountSelectionSummary();
             await LoadHistoryAsync();
         }
         catch (Exception ex) { ErrorMessage = ex.Message; }
         finally { IsLoading = false; }
     }
+
+    private void OnAccountPickPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(AccountPick.IsSelected))
+            UpdateAccountSelectionSummary();
+    }
+
+    private bool AccountFilter(object obj)
+    {
+        if (obj is not AccountPick p) return false;
+        if (string.IsNullOrWhiteSpace(AccountSearchText)) return true;
+        var s = AccountSearchText.Trim();
+        return p.Name.Contains(s, StringComparison.OrdinalIgnoreCase)
+            || p.Username.Contains(s, StringComparison.OrdinalIgnoreCase);
+    }
+
+    partial void OnAccountPicksChanged(ObservableCollection<AccountPick> value)
+    {
+        // Wire filter into the default view that XAML's ItemsControl will bind to.
+        var view = System.Windows.Data.CollectionViewSource.GetDefaultView(value);
+        if (view != null) view.Filter = AccountFilter;
+    }
+
+    partial void OnAccountSearchTextChanged(string value)
+    {
+        var view = System.Windows.Data.CollectionViewSource.GetDefaultView(AccountPicks);
+        view?.Refresh();
+    }
+
+    private void UpdateAccountSelectionSummary()
+    {
+        var selected = AccountPicks.Where(p => p.IsSelected).ToList();
+        if (selected.Count == 0)
+        {
+            AccountSelectionSummary = "No accounts selected";
+            return;
+        }
+        if (selected.Count == 1)
+        {
+            AccountSelectionSummary = $"1 account: {selected[0].Name}";
+            return;
+        }
+        AccountSelectionSummary = $"{selected.Count} accounts selected";
+    }
+
+    private List<int> GetSelectedAccountIds()
+        => AccountPicks.Where(p => p.IsSelected).Select(p => p.Id).ToList();
+
+    // ── Picker commands ──
+
+    [RelayCommand]
+    private void OpenAccountPicker() => IsAccountPickerOpen = true;
+
+    [RelayCommand]
+    private void CloseAccountPicker() => IsAccountPickerOpen = false;
+
+    [RelayCommand]
+    private void SelectAllAccounts()
+    {
+        foreach (var p in AccountPicks) p.IsSelected = true;
+    }
+
+    [RelayCommand]
+    private void ClearAccountSelection()
+    {
+        foreach (var p in AccountPicks) p.IsSelected = false;
+    }
+
+    [RelayCommand]
+    private void AddCategoryToSelection(CategoryPick? category)
+    {
+        if (category == null) return;
+        var ids = AccountPicks
+            .Where(p => p.Account.Categories.Any(m => m.AccountCategoryId == category.Id))
+            .ToList();
+        foreach (var p in ids) p.IsSelected = true;
+    }
+
+    [RelayCommand]
+    private void RemoveCategoryFromSelection(CategoryPick? category)
+    {
+        if (category == null) return;
+        var ids = AccountPicks
+            .Where(p => p.Account.Categories.Any(m => m.AccountCategoryId == category.Id))
+            .ToList();
+        foreach (var p in ids) p.IsSelected = false;
+    }
+
+    // ── Run commands ──
 
     [RelayCommand]
     private async Task RunNowAsync()
@@ -92,33 +243,82 @@ public partial class TaskListViewModel : ViewModelBase
             StatusMessage = "⚠ Select a template first.";
             return;
         }
-        if (SelectedAccount == null)
+
+        var ids = GetSelectedAccountIds();
+        if (ids.Count == 0)
         {
-            StatusMessage = "⚠ Select an account first.";
+            StatusMessage = "⚠ Select at least one account first.";
             return;
         }
 
-        // Auto-open browser if not already open
-        if (!_browserManager.IsContextAlive(SelectedAccount.Id))
+        await ExecuteForAccountsAsync(SelectedTemplate, ids);
+    }
+
+    [RelayCommand]
+    private async Task RunForAllActiveAccountsAsync()
+    {
+        if (SelectedTemplate == null)
         {
-            StatusMessage = $"Opening browser for '{SelectedAccount.Name}'...";
+            StatusMessage = "⚠ Select a template first.";
+            return;
+        }
+
+        var ids = AccountPicks.Select(p => p.Id).ToList();
+        if (ids.Count == 0)
+        {
+            StatusMessage = "⚠ No active accounts available.";
+            return;
+        }
+
+        await ExecuteForAccountsAsync(SelectedTemplate, ids);
+    }
+
+    private async Task ExecuteForAccountsAsync(ActionTemplate template, List<int> accountIds)
+    {
+        // Open browsers for accounts that don't already have one. Sequential
+        // and gated by IBrowserManager.CanLaunchMore() so we respect the
+        // configured concurrency cap and don't blow up RAM.
+        var needOpen = accountIds.Where(id => !_browserManager.IsContextAlive(id)).ToList();
+        int opened = 0, failedOpen = 0;
+        foreach (var id in needOpen)
+        {
+            if (!_browserManager.CanLaunchMore())
+            {
+                StatusMessage = $"⚠ Stopped opening browsers at {opened}/{needOpen.Count} — RAM/CPU budget exhausted.";
+                break;
+            }
+
+            var account = AccountPicks.FirstOrDefault(p => p.Id == id)?.Account
+                          ?? await _accountService.GetByIdAsync(id);
+            if (account == null) continue;
+
+            StatusMessage = $"Opening browser for '{account.Name}'... ({opened + 1}/{needOpen.Count})";
             try
             {
-                await _browserManager.OpenAccountPageAsync(SelectedAccount);
+                await _browserManager.OpenAccountPageAsync(account);
+                opened++;
             }
             catch (Exception ex)
             {
-                StatusMessage = $"✗ Failed to open browser: {ex.Message}";
-                return;
+                failedOpen++;
+                StatusMessage = $"✗ Failed to open browser for '{account.Name}': {ex.Message}";
             }
         }
 
-        StatusMessage = $"Running '{SelectedTemplate.Name}' on '{SelectedAccount.Name}'...";
+        // Only run on accounts whose browser is actually alive at this point.
+        var runnable = accountIds.Where(_browserManager.IsContextAlive).ToList();
+        if (runnable.Count == 0)
+        {
+            StatusMessage = $"✗ No browsers available to run '{template.Name}'.";
+            return;
+        }
+
+        StatusMessage = $"Running '{template.Name}' on {runnable.Count} account(s)...";
         _ = Task.Run(async () =>
         {
             try
             {
-                await _taskEngine.ExecuteTemplateAsync(SelectedTemplate.Id, SelectedAccount.Id);
+                await _taskEngine.ExecuteTemplateForAccountsAsync(template.Id, runnable);
             }
             catch (Exception ex)
             {
@@ -128,39 +328,87 @@ public partial class TaskListViewModel : ViewModelBase
         });
     }
 
+    // ── Preset commands ──
+
     [RelayCommand]
-    private async Task RunForAllAccountsAsync()
+    private void OpenSavePresetDialog()
     {
-        if (SelectedTemplate == null)
+        if (SelectedTemplate == null && GetSelectedAccountIds().Count == 0)
         {
-            StatusMessage = "⚠ Select a template first.";
+            StatusMessage = "⚠ Pick a template and/or some accounts before saving a preset.";
+            return;
+        }
+        PresetNameInput = SelectedPreset?.Name ?? string.Empty;
+        IsSavePresetDialogOpen = true;
+    }
+
+    [RelayCommand]
+    private void CancelSavePreset()
+    {
+        IsSavePresetDialogOpen = false;
+        PresetNameInput = string.Empty;
+    }
+
+    [RelayCommand]
+    private async Task ConfirmSavePresetAsync()
+    {
+        var name = (PresetNameInput ?? string.Empty).Trim();
+        if (name.Length == 0)
+        {
+            StatusMessage = "⚠ Preset name cannot be empty.";
             return;
         }
 
-        var activeIds = Accounts
-            .Where(a => _browserManager.IsContextAlive(a.Id))
-            .Select(a => a.Id)
-            .ToList();
-
-        if (activeIds.Count == 0)
+        try
         {
-            StatusMessage = "⚠ No accounts have an open browser.";
-            return;
+            var preset = await _presetService.SaveAsync(name, SelectedTemplate?.Id, GetSelectedAccountIds());
+            Presets = new ObservableCollection<TaskPreset>(await _presetService.GetAllAsync());
+            SelectedPreset = Presets.FirstOrDefault(p => p.Id == preset.Id);
+            StatusMessage = $"✓ Preset '{preset.Name}' saved.";
+            IsSavePresetDialogOpen = false;
+            PresetNameInput = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"✗ Failed to save preset: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private async Task DeletePresetAsync()
+    {
+        if (SelectedPreset == null) return;
+
+        var confirm = System.Windows.MessageBox.Show(
+            $"Delete preset '{SelectedPreset.Name}'?",
+            "Confirm delete",
+            System.Windows.MessageBoxButton.OKCancel,
+            System.Windows.MessageBoxImage.Warning);
+        if (confirm != System.Windows.MessageBoxResult.OK) return;
+
+        var name = SelectedPreset.Name;
+        await _presetService.DeleteAsync(SelectedPreset.Id);
+        Presets = new ObservableCollection<TaskPreset>(await _presetService.GetAllAsync());
+        SelectedPreset = null;
+        StatusMessage = $"Preset '{name}' deleted.";
+    }
+
+    // Apply the preset's saved state when the user picks one from the dropdown.
+    partial void OnSelectedPresetChanged(TaskPreset? value)
+    {
+        if (value == null) return;
+
+        if (value.ActionTemplateId.HasValue)
+        {
+            var tpl = Templates.FirstOrDefault(t => t.Id == value.ActionTemplateId.Value);
+            if (tpl != null) SelectedTemplate = tpl;
         }
 
-        StatusMessage = $"Running '{SelectedTemplate.Name}' on {activeIds.Count} accounts...";
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await _taskEngine.ExecuteTemplateForAccountsAsync(SelectedTemplate.Id, activeIds);
-            }
-            catch (Exception ex)
-            {
-                System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                    StatusMessage = $"✗ Error: {ex.Message}");
-            }
-        });
+        var ids = _presetService.ParseAccountIds(value).ToHashSet();
+        foreach (var p in AccountPicks)
+            p.IsSelected = ids.Contains(p.Id);
+
+        StatusMessage = $"Loaded preset '{value.Name}' ({ids.Count} account(s)).";
     }
 
     [RelayCommand]
