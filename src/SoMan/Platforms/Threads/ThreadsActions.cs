@@ -535,6 +535,212 @@ public class ThreadsActions
         return null;
     }
 
+    // ── Quote ──
+
+    /// <summary>
+    /// Quotes a post (Repost → Quote menu option) and adds the given commentary.
+    /// Navigates to <paramref name="postUrl"/> if the current page is not already there,
+    /// finds the target post article, clicks Repost → Quote, types the text and submits.
+    /// </summary>
+    public async Task<bool> QuotePostAsync(IPage page, string postUrl, string text, CancellationToken ct = default)
+    {
+        var dbg = new StringBuilder();
+        try
+        {
+            dbg.Append("[Quote] start; ");
+
+            // Navigate to the target post if not already there.
+            if (!page.Url.TrimEnd('/').Equals(postUrl.TrimEnd('/')))
+            {
+                await page.GotoAsync(postUrl, new()
+                {
+                    WaitUntil = WaitUntilState.DOMContentLoaded,
+                    Timeout = ThreadsConstants.PageLoadTimeout
+                });
+                await _delay.WaitAsync(1500, 3000, ct);
+                dbg.Append("navigated; ");
+            }
+
+            // The target post is the first article on its own permalink page.
+            var article = page.Locator(ThreadsSelectors.PostArticle).First;
+            if (await article.CountAsync() == 0)
+                throw new Exception($"{dbg}target post article not found");
+
+            // Click the Repost button scoped to that article — same selector Repost uses.
+            var repostBtn = article.Locator(ThreadsSelectors.RepostButton).First;
+            if (await repostBtn.CountAsync() == 0)
+                throw new Exception($"{dbg}repost button not found on article");
+            await repostBtn.ClickAsync();
+            dbg.Append("repostClicked; ");
+            await _delay.WaitAsync(1000, 2000, ct);
+
+            // Repost popup has two options: "Repost" and "Quote". We want Quote.
+            var quoteOption = page.Locator(ThreadsSelectors.QuoteOption).First;
+            if (await quoteOption.CountAsync() == 0)
+                throw new Exception($"{dbg}quote option not found in repost popup");
+            await quoteOption.ClickAsync();
+            dbg.Append("quoteClicked; ");
+            await _delay.WaitAsync(1500, 3000, ct);
+
+            // From here the flow mirrors CommentOnPostAsync's composer-submit stage:
+            // dialog opens containing the quoted post + a contenteditable textbox; we
+            // type the user's commentary and submit.
+            bool submitted = await TypeAndSubmitDialogComposerAsync(page, text, ct, dbg);
+            if (!submitted)
+                throw new Exception($"{dbg}submit not confirmed — composer still open after every strategy");
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"{dbg}error={ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Assumes a Threads composer dialog is currently open (e.g. after clicking Reply
+    /// on a post, or Quote in the repost popup). Types <paramref name="text"/> into the
+    /// dialog's contenteditable composer and submits using the same multi-strategy
+    /// fallback chain as <see cref="CommentOnPostAsync"/>. Returns true if the composer
+    /// closes (confirmed submission), false otherwise.
+    /// </summary>
+    private async Task<bool> TypeAndSubmitDialogComposerAsync(
+        IPage page, string text, CancellationToken ct, StringBuilder dbg)
+    {
+        var dialog = page.Locator("[role='dialog']").Last;
+        bool hasDialog = false;
+        try { hasDialog = await dialog.CountAsync() > 0 && await dialog.IsVisibleAsync(); }
+        catch { }
+        dbg.Append($"hasDialog={hasDialog}; ");
+
+        ILocator textArea = hasDialog
+            ? dialog.Locator("[contenteditable='true'], [role='textbox']").Last
+            : page.Locator(ThreadsSelectors.ReplyTextArea).Last;
+
+        await textArea.WaitForAsync(new() { Timeout = ThreadsConstants.ElementWaitTimeout });
+        await textArea.ClickAsync();
+        await _delay.WaitAsync(200, 500, ct);
+        await textArea.PressSequentiallyAsync(text, new() { Delay = 30 });
+        dbg.Append($"textTyped(len={text.Length}); ");
+        await _delay.WaitAsync(800, 1500, ct);
+
+        async Task<bool> WaitForComposerClosedAsync(int seconds)
+        {
+            var until = DateTime.UtcNow.AddSeconds(seconds);
+            while (DateTime.UtcNow < until && !ct.IsCancellationRequested)
+            {
+                try
+                {
+                    if (hasDialog)
+                    {
+                        int dlgCount = await dialog.CountAsync();
+                        if (dlgCount == 0) return true;
+                        if (!await dialog.IsVisibleAsync()) return true;
+                    }
+                    else
+                    {
+                        var editor = page.Locator(ThreadsSelectors.ReplyTextArea).Last;
+                        if (await editor.CountAsync() == 0) return true;
+                        if (!await editor.IsVisibleAsync()) return true;
+                        var txt = await editor.InnerTextAsync();
+                        if (string.IsNullOrWhiteSpace(txt)) return true;
+                    }
+                }
+                catch { return true; }
+                await _delay.WaitAsync(300, 600, ct);
+            }
+            return false;
+        }
+
+        bool submitted = false;
+
+        // Strategy 1: Ctrl+Enter (primary, bypasses all button-click pitfalls)
+        try
+        {
+            await textArea.PressAsync("Control+Enter");
+            dbg.Append("submit=ctrl_enter_sent; ");
+            if (await WaitForComposerClosedAsync(6)) { submitted = true; dbg.Append("submit=ctrl_enter_ok; "); }
+        }
+        catch (Exception exCe) { dbg.Append($"submit=ctrl_enter_fail({exCe.Message}); "); }
+
+        // Resolve Post button for click-based fallbacks.
+        ILocator scope = hasDialog ? dialog : page.Locator("body");
+        ILocator postBtn = scope.GetByRole(AriaRole.Button, new() { Name = "Post", Exact = true });
+        if (await postBtn.CountAsync() == 0)
+        {
+            postBtn = scope.Locator("button, [role='button']").Filter(new() { HasTextRegex = PostButtonTextRegex });
+            if (await postBtn.CountAsync() == 0)
+                postBtn = page.Locator(ThreadsSelectors.ReplyPostButton);
+        }
+        postBtn = postBtn.Last;
+
+        if (!submitted)
+        {
+            try { await postBtn.WaitForAsync(new() { Timeout = ThreadsConstants.ElementWaitTimeout }); await postBtn.ScrollIntoViewIfNeededAsync(); } catch { }
+
+            // Wait for button to become enabled (Threads keeps aria-disabled until input fires).
+            var enabledUntil = DateTime.UtcNow.AddSeconds(6);
+            while (DateTime.UtcNow < enabledUntil && !ct.IsCancellationRequested)
+            {
+                bool disabled = false;
+                try { if (await postBtn.GetAttributeAsync("aria-disabled") == "true") disabled = true; } catch { }
+                if (!disabled) { try { if (await postBtn.IsDisabledAsync()) disabled = true; } catch { } }
+                if (!disabled) break;
+                await _delay.WaitAsync(200, 400, ct);
+            }
+        }
+
+        // Strategy 2: normal click
+        if (!submitted)
+        {
+            try
+            {
+                await postBtn.ClickAsync(new() { Timeout = 5000 });
+                if (await WaitForComposerClosedAsync(5)) { submitted = true; dbg.Append("submit=normal_ok; "); }
+            }
+            catch (Exception ex1) { dbg.Append($"click=normal_fail({ex1.Message}); "); }
+        }
+
+        // Strategy 3: force click
+        if (!submitted)
+        {
+            try
+            {
+                await postBtn.ClickAsync(new() { Force = true, Timeout = 5000 });
+                if (await WaitForComposerClosedAsync(5)) { submitted = true; dbg.Append("submit=force_ok; "); }
+            }
+            catch (Exception ex2) { dbg.Append($"click=force_fail({ex2.Message}); "); }
+        }
+
+        // Strategy 4: click at bounding-box center
+        if (!submitted)
+        {
+            try
+            {
+                var box = await postBtn.BoundingBoxAsync();
+                if (box != null)
+                {
+                    await page.Mouse.ClickAsync(box.X + (box.Width / 2), box.Y + (box.Height / 2));
+                    if (await WaitForComposerClosedAsync(5)) { submitted = true; dbg.Append("submit=coord_ok; "); }
+                }
+            }
+            catch (Exception ex3) { dbg.Append($"click=coord_fail({ex3.Message}); "); }
+        }
+
+        // Strategy 5: in-page JS click — bypasses Playwright actionability + overlay issues.
+        if (!submitted)
+        {
+            try
+            {
+                await postBtn.EvaluateAsync<object>("el => el.click()");
+                if (await WaitForComposerClosedAsync(5)) { submitted = true; dbg.Append("submit=js_ok; "); }
+            }
+            catch (Exception ex4) { dbg.Append($"click=js_fail({ex4.Message}); "); }
+        }
+
+        return submitted;
+    }
+
     // ── Repost ──
 
     public async Task<bool> RepostAsync(IPage page, ILocator postArticle, CancellationToken ct = default)
