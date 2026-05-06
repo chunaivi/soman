@@ -18,7 +18,12 @@ public enum ActionType
     // Takes one large text blob (pasted or loaded from a .txt file) and
     // automatically splits it into 500-char-friendly chunks, posts the first
     // as a new post and the rest as self-replies — all in a single step.
-    CreateThreadFromText
+    CreateThreadFromText,
+    // Appends a reply to an existing thread by URL — the affiliate pattern
+    // of re-engaging a previous utas with a follow-up (stock update, flash
+    // sale, buyer proof). Paste the URL of the head post (or any segment)
+    // and the reply lands nested under it.
+    AddToThread
 }
 
 public class ActionTemplate

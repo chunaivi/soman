@@ -256,7 +256,7 @@
                         </TextBox.Style>
                     </TextBox>
 
-                    <!-- Texts (Comment, ReplyToOwnLastPost) -->
+                    <!-- Texts (Comment, ReplyToOwnLastPost, AddToThread) -->
                     <TextBox materialDesign:HintAssist.Hint="Texts (separate with |, one is picked at random)"
                              Text="{Binding ParamTexts, UpdateSourceTrigger=PropertyChanged}"
                              Margin="0,0,0,12"
@@ -269,6 +269,25 @@
                                         <Setter Property="Visibility" Value="Visible"/>
                                     </DataTrigger>
                                     <DataTrigger Binding="{Binding FormStepActionType}" Value="ReplyToOwnLastPost">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="AddToThread">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+
+                    <!-- Target URL (AddToThread) -->
+                    <TextBox materialDesign:HintAssist.Hint="Target thread URL (https://www.threads.net/@user/post/...)"
+                             Text="{Binding ParamTargetUrl, UpdateSourceTrigger=PropertyChanged}"
+                             Margin="0,0,0,12">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource MaterialDesignOutlinedTextBox}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="AddToThread">
                                         <Setter Property="Visibility" Value="Visible"/>
                                     </DataTrigger>
                                 </Style.Triggers>
