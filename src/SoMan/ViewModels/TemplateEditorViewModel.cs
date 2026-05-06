@@ -554,6 +554,11 @@ public partial class TemplateEditorViewModel : ViewModelBase
             case ActionType.OpenRandomPost:
                 // No parameters needed — picks random post from current page
                 break;
+            case ActionType.ReplyToOwnLastPost:
+                // Random pick from pipe-separated variants (reuses the same
+                // "texts" bucket as Comment for UI consistency).
+                obj["texts"] = ParamTexts.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                break;
         }
 
         return JsonSerializer.Serialize(obj);

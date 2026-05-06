@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.Playwright;
 using SoMan.Models;
@@ -17,6 +18,12 @@ public class ThreadsAutomation
     private readonly IDelayService _delay;
     private readonly IActivityLogger _logger;
     private readonly ThreadsActions _actions;
+
+    // Tracks each account's most-recently-created post URL within the currently
+    // running executions. Used by ReplyToOwnLastPost to chain segments into a
+    // Threads "utas". Entries live for the lifetime of the app; each fresh
+    // CreatePost overwrites the previous URL for that account.
+    private readonly ConcurrentDictionary<int, string> _lastOwnPostUrl = new();
 
     public ThreadsAutomation(IBrowserManager browserManager, IDelayService delay, IActivityLogger logger)
     {
@@ -57,6 +64,7 @@ public class ThreadsAutomation
                 ActionType.ViewProfile => await ExecuteViewProfileAsync(page, accountId, parameters, ct),
                 ActionType.Search => await ExecuteSearchAsync(page, accountId, parameters, ct),
                 ActionType.OpenRandomPost => await ExecuteOpenRandomPostAsync(page, accountId, parameters, ct),
+                ActionType.ReplyToOwnLastPost => await ExecuteReplyToOwnLastPostAsync(page, accountId, parameters, ct),
                 _ => (false, $"Unknown action type: {step.ActionType}")
             };
         }
@@ -194,10 +202,66 @@ public class ThreadsAutomation
         if (string.IsNullOrWhiteSpace(text))
             return (false, "Post text is required.");
 
-        bool ok = await _actions.CreatePostAsync(page, text, ct);
-        await _logger.LogAsync(accountId, ActionType.CreatePost, null,
-            ok ? ActionResult.Success : ActionResult.Failed, ok ? $"Posted: {text[..Math.Min(50, text.Length)]}" : "Failed to post");
+        var postUrl = await _actions.CreatePostAsync(page, text, ct);
+        bool ok = postUrl != null;
+
+        if (ok)
+        {
+            // Remember this URL so a later ReplyToOwnLastPost step can chain to it.
+            _lastOwnPostUrl[accountId] = postUrl!;
+        }
+
+        await _logger.LogAsync(accountId, ActionType.CreatePost, postUrl,
+            ok ? ActionResult.Success : ActionResult.Failed,
+            ok ? $"Posted: {text[..Math.Min(50, text.Length)]}" : "Failed to post");
+
         return (ok, ok ? "Post created." : "Failed to create post.");
+    }
+
+    private async Task<(bool, string)> ExecuteReplyToOwnLastPostAsync(
+        IPage page, int accountId, Dictionary<string, JsonElement> p, CancellationToken ct)
+    {
+        if (!_lastOwnPostUrl.TryGetValue(accountId, out var postUrl) || string.IsNullOrWhiteSpace(postUrl))
+            return (false, "No previous CreatePost in this run — nothing to reply to.");
+
+        string[] texts = GetStringArray(p, "texts", Array.Empty<string>());
+        string? single = GetString(p, "text", null);
+        if (texts.Length == 0 && !string.IsNullOrWhiteSpace(single))
+            texts = new[] { single! };
+
+        if (texts.Length == 0)
+            return (false, "Reply text is required (provide `text` or `texts`).");
+
+        var rng = new Random();
+        string replyText = texts[rng.Next(texts.Length)];
+
+        // Navigate to the target post
+        if (!page.Url.TrimEnd('/').Equals(postUrl.TrimEnd('/')))
+        {
+            await page.GotoAsync(postUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = ThreadsConstants.PageLoadTimeout });
+            await _delay.WaitAsync(1500, 3000, ct);
+        }
+
+        // Use the existing reply flow, scoped to the first article on the post page
+        // (the target post itself). This uses the same nested-reply mechanism
+        // that Comment uses for other users' posts.
+        var target = page.Locator(ThreadsSelectors.PostArticle).First;
+        if (await target.CountAsync() == 0)
+            return (false, "Target post article not found after navigation.");
+
+        try
+        {
+            bool ok = await _actions.CommentOnPostAsync(page, target, replyText, ct);
+            await _logger.LogAsync(accountId, ActionType.ReplyToOwnLastPost, postUrl,
+                ok ? ActionResult.Success : ActionResult.Failed,
+                ok ? $"Replied: {replyText[..Math.Min(50, replyText.Length)]}" : "Reply submit failed");
+            return (ok, ok ? "Reply posted to own last post." : "Reply submission failed.");
+        }
+        catch (Exception ex)
+        {
+            await _logger.LogAsync(accountId, ActionType.ReplyToOwnLastPost, postUrl, ActionResult.Failed, ex.Message);
+            return (false, $"Reply failed: {ex.Message}");
+        }
     }
 
     private async Task<(bool, string)> ExecuteRepostAsync(
