@@ -83,6 +83,11 @@
                                 Content="+ Add Step" Margin="12,0,0,0"
                                 Command="{Binding OpenAddStepDialogCommand}"
                                 materialDesign:ButtonAssist.CornerRadius="4"/>
+                        <Button Style="{StaticResource MaterialDesignOutlinedButton}"
+                                Content="Import .txt → thread" Margin="8,0,0,0"
+                                ToolTip="Auto-generate steps (CreatePost + replies) from a .txt file, split at 500 chars"
+                                Command="{Binding ImportThreadFromFileCommand}"
+                                materialDesign:ButtonAssist.CornerRadius="4"/>
                         <TextBlock Text="{Binding StatusMessage}" Margin="16,0,0,0"
                                    VerticalAlignment="Center" Opacity="0.7" FontSize="12"/>
                     </StackPanel>
@@ -188,8 +193,9 @@
 
             <!-- Step Dialog -->
             <materialDesign:Card Padding="24" VerticalAlignment="Center" HorizontalAlignment="Center"
-                                 MaxWidth="500"
+                                 MaxWidth="500" MaxHeight="700"
                                  Visibility="{Binding IsStepDialogOpen, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Width="420">
                     <TextBlock FontSize="18" FontWeight="Bold" Margin="0,0,0,16">
                         <TextBlock.Style>
@@ -250,8 +256,8 @@
                         </TextBox.Style>
                     </TextBox>
 
-                    <!-- Texts (Comment) -->
-                    <TextBox materialDesign:HintAssist.Hint="Comment texts (separate with |)"
+                    <!-- Texts (Comment, ReplyToOwnLastPost) -->
+                    <TextBox materialDesign:HintAssist.Hint="Texts (separate with |, one is picked at random)"
                              Text="{Binding ParamTexts, UpdateSourceTrigger=PropertyChanged}"
                              Margin="0,0,0,12"
                              AcceptsReturn="True" MinHeight="60">
@@ -260,6 +266,9 @@
                                 <Setter Property="Visibility" Value="Collapsed"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding FormStepActionType}" Value="Comment">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="ReplyToOwnLastPost">
                                         <Setter Property="Visibility" Value="Visible"/>
                                     </DataTrigger>
                                 </Style.Triggers>
@@ -339,8 +348,72 @@
                         <TextBlock Text="Interact with search results" VerticalAlignment="Center"/>
                     </StackPanel>
 
+                    <!-- CreateThreadFromText — paste/load + split preview -->
+                    <StackPanel>
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="CreateThreadFromText">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+
+                        <TextBox materialDesign:HintAssist.Hint="Paste thread text here (or browse a .txt file)"
+                                 Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                 Text="{Binding ParamThreadText, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 MinHeight="140" MaxHeight="220"
+                                 Margin="0,0,0,8"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Style="{StaticResource MaterialDesignOutlinedButton}"
+                                    Content="Browse .txt…"
+                                    Command="{Binding BrowseThreadFileCommand}"
+                                    materialDesign:ButtonAssist.CornerRadius="4" Margin="0,0,8,0"/>
+                            <Button Style="{StaticResource MaterialDesignOutlinedButton}"
+                                    Content="Preview split"
+                                    Command="{Binding PreviewThreadSplitCommand}"
+                                    materialDesign:ButtonAssist.CornerRadius="4"/>
+                            <TextBlock Text="{Binding ParamThreadFilePath}" Margin="12,0,0,0"
+                                       VerticalAlignment="Center" Opacity="0.6" FontSize="11"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" materialDesign:HintAssist.Hint="Max chars/segment"
+                                     Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     Text="{Binding ParamMaxCharsPerSegment, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBox Grid.Column="2" materialDesign:HintAssist.Hint="Delay min (ms)"
+                                     Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     Text="{Binding ParamSegmentDelayMin, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBox Grid.Column="4" materialDesign:HintAssist.Hint="Delay max (ms)"
+                                     Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     Text="{Binding ParamSegmentDelayMax, UpdateSourceTrigger=PropertyChanged}"/>
+                        </Grid>
+
+                        <TextBox Text="{Binding ParamThreadPreview, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 FontFamily="Consolas" FontSize="11"
+                                 AcceptsReturn="True" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 MinHeight="80" MaxHeight="140"
+                                 Margin="0,0,0,12"
+                                 Visibility="{Binding ParamThreadPreview, Converter={StaticResource NullToVisibility}}"/>
+                    </StackPanel>
+
                     <!-- Delay settings -->
-                    <Grid Margin="0,0,0,16">
+                    <Grid Margin="0,0,0,12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="12"/>
@@ -354,6 +427,37 @@
                                  Style="{StaticResource MaterialDesignOutlinedTextBox}"/>
                     </Grid>
 
+                    <!-- Advanced (raw JSON) editor — expandable so power users can edit
+                         every parameter (including ones the form doesn't surface) and
+                         the form-driven UX stays uncluttered for everyone else. -->
+                    <Expander Header="Advanced (raw JSON parameters)"
+                              IsExpanded="{Binding IsAdvancedJsonExpanded, Mode=TwoWay}"
+                              Margin="0,0,0,16"
+                              Background="Transparent"
+                              BorderBrush="{DynamicResource MaterialDesignDivider}"
+                              BorderThickness="1">
+                        <StackPanel Margin="12,8,12,12">
+                            <TextBlock Text="Edit ParametersJson directly. Form fields above stay in sync; unknown keys you add here are preserved on Save."
+                                       FontSize="11" Opacity="0.7" TextWrapping="Wrap"
+                                       Margin="0,0,0,8"/>
+                            <TextBox Text="{Binding AdvancedParamsJson, UpdateSourceTrigger=PropertyChanged}"
+                                     Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                                     materialDesign:HintAssist.Hint="ParametersJson"
+                                     AcceptsReturn="True"
+                                     TextWrapping="NoWrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     FontFamily="Consolas, Courier New, monospace"
+                                     MinHeight="120" MaxHeight="220"/>
+                            <TextBlock Text="{Binding AdvancedJsonError}"
+                                       Foreground="#EF5350"
+                                       FontSize="12"
+                                       TextWrapping="Wrap"
+                                       Margin="0,6,0,0"
+                                       Visibility="{Binding AdvancedJsonError, Converter={StaticResource InverseNullToVisibility}}"/>
+                        </StackPanel>
+                    </Expander>
+
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                         <Button Content="Cancel" Style="{StaticResource MaterialDesignFlatButton}"
                                 Command="{Binding CancelDialogCommand}" Margin="0,0,8,0"/>
@@ -362,6 +466,7 @@
                                 materialDesign:ButtonAssist.CornerRadius="4"/>
                     </StackPanel>
                 </StackPanel>
+                </ScrollViewer>
             </materialDesign:Card>
         </Grid>
     </Grid>

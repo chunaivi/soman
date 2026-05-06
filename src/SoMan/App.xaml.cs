@@ -1,5 +1,6 @@
 ﻿using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
 using SoMan.Data;
 using SoMan.Services.Browser;
 using SoMan.Services.Config;
@@ -12,6 +13,8 @@ using SoMan.Services.Security;
 using SoMan.Platforms.Threads;
 using SoMan.Services.Template;
 using SoMan.Services.Execution;
+using SoMan.Services.Scheduler;
+using SoMan.Services.Theming;
 using SoMan.ViewModels;
 
 namespace SoMan;
@@ -41,6 +44,38 @@ public partial class App : Application
         using (var db = new SoManDbContext())
         {
             await db.Database.EnsureCreatedAsync();
+
+            // EnsureCreated only seeds the schema for fresh databases. Users
+            // upgrading from an older DB won't get newly-added tables, so add
+            // any missing ones here. SQLite's CREATE TABLE IF NOT EXISTS is a
+            // no-op on fresh installs and a forward-compat path for upgrades.
+            await db.Database.ExecuteSqlRawAsync(@"
+                CREATE TABLE IF NOT EXISTS ""TaskPresets"" (
+                    ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_TaskPresets"" PRIMARY KEY AUTOINCREMENT,
+                    ""Name"" TEXT NOT NULL,
+                    ""ActionTemplateId"" INTEGER NULL,
+                    ""AccountIdsJson"" TEXT NOT NULL DEFAULT '[]',
+                    ""CreatedAt"" TEXT NOT NULL,
+                    ""UpdatedAt"" TEXT NOT NULL,
+                    CONSTRAINT ""FK_TaskPresets_ActionTemplates_ActionTemplateId""
+                        FOREIGN KEY (""ActionTemplateId"") REFERENCES ""ActionTemplates"" (""Id"") ON DELETE SET NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS ""IX_TaskPresets_Name"" ON ""TaskPresets"" (""Name"");
+            ");
+        }
+
+        // Apply saved theme (Dark/Light) before any window is shown.
+        try { await _serviceProvider.GetRequiredService<IThemeService>().ApplyStartupThemeAsync(); }
+        catch { /* fall back to the BundledTheme declared in App.xaml */ }
+
+        // Start Quartz scheduler and register all enabled ScheduledTasks.
+        var scheduler = _serviceProvider.GetRequiredService<ISchedulerService>();
+        try { await scheduler.StartAsync(); }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"Scheduler failed to start: {ex.Message}\nScheduled tasks will not run this session.",
+                "SoMan Scheduler", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
 
         var mainWindow = new MainWindow
@@ -73,7 +108,15 @@ public partial class App : Application
 
         // Template & Task engine
         services.AddTransient<ITemplateService, TemplateService>();
+        services.AddTransient<ITaskPresetService, TaskPresetService>();
         services.AddSingleton<ITaskEngine, TaskEngine>();
+
+        // Scheduler (Quartz). Singleton so the same IScheduler instance lives
+        // for the whole app lifetime.
+        services.AddSingleton<ISchedulerService, SchedulerService>();
+
+        // Theme service — holds current base theme and applies via PaletteHelper.
+        services.AddSingleton<IThemeService, ThemeService>();
 
         // ViewModels
         services.AddSingleton<MainViewModel>();
@@ -90,6 +133,10 @@ public partial class App : Application
     {
         if (_serviceProvider != null)
         {
+            var scheduler = _serviceProvider.GetService<ISchedulerService>();
+            if (scheduler != null)
+                await scheduler.ShutdownAsync();
+
             var browserManager = _serviceProvider.GetService<IBrowserManager>();
             if (browserManager != null)
                 await browserManager.DisposeAsync();

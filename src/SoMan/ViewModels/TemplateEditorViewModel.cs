@@ -1,9 +1,12 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Win32;
 using SoMan.Models;
 using SoMan.Services.Template;
+using SoMan.Services.Text;
 
 namespace SoMan.ViewModels;
 
@@ -95,6 +98,46 @@ public partial class TemplateEditorViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool _paramInteract;
+
+    // ── Advanced (raw JSON) editor for step parameters ──
+    // When IsAdvancedJsonExpanded is true the user sees a textbox containing the
+    // raw ParametersJson and can edit any field (including ones the form doesn't
+    // surface). The form fields and JSON stay in lockstep — editing one updates
+    // the other — and AdvancedParamsJson is the source of truth at Save time so
+    // unknown fields the user adds in JSON are preserved.
+    [ObservableProperty]
+    private bool _isAdvancedJsonExpanded;
+
+    [ObservableProperty]
+    private string _advancedParamsJson = "{}";
+
+    [ObservableProperty]
+    private string? _advancedJsonError;
+
+    // Internal guards to prevent JSON↔form sync from feedback-looping
+    private bool _suppressFormToJson;
+    private bool _suppressJsonToForm;
+
+    private bool CanSaveStep() => string.IsNullOrEmpty(AdvancedJsonError);
+
+    // Thread-from-text parameters
+    [ObservableProperty]
+    private string _paramThreadText = string.Empty;
+
+    [ObservableProperty]
+    private string _paramThreadFilePath = string.Empty;
+
+    [ObservableProperty]
+    private int _paramMaxCharsPerSegment = 500;
+
+    [ObservableProperty]
+    private int _paramSegmentDelayMin = 3000;
+
+    [ObservableProperty]
+    private int _paramSegmentDelayMax = 8000;
+
+    [ObservableProperty]
+    private string _paramThreadPreview = string.Empty;
 
     [ObservableProperty]
     private string _statusMessage = string.Empty;
@@ -231,6 +274,9 @@ public partial class TemplateEditorViewModel : ViewModelBase
         FormStepDelayMin = 3000;
         FormStepDelayMax = 10000;
         ClearStepParams();
+        IsAdvancedJsonExpanded = false;
+        AdvancedJsonError = null;
+        AdvancedParamsJson = BuildParametersJson();
         IsStepDialogOpen = true;
     }
 
@@ -244,15 +290,32 @@ public partial class TemplateEditorViewModel : ViewModelBase
         FormStepDelayMin = SelectedStep.DelayMinMs;
         FormStepDelayMax = SelectedStep.DelayMaxMs;
         LoadStepParams(SelectedStep.ParametersJson);
+        IsAdvancedJsonExpanded = false;
+        AdvancedJsonError = null;
+        // Pretty-print the existing JSON so it's easier to edit.
+        AdvancedParamsJson = PrettyPrintJson(SelectedStep.ParametersJson);
         IsStepDialogOpen = true;
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanSaveStep))]
     private async Task SaveStepAsync()
     {
         if (SelectedTemplate == null) return;
 
-        string paramsJson = BuildParametersJson();
+        // Source of truth: the AdvancedParamsJson, which we keep in lockstep with
+        // the form fields. Re-validate one last time before saving.
+        string paramsJson;
+        try
+        {
+            using var _ = JsonDocument.Parse(AdvancedParamsJson);
+            paramsJson = AdvancedParamsJson;
+        }
+        catch
+        {
+            // Fallback to a fresh build from form fields if the JSON is somehow
+            // invalid at save time (CanExecute should have prevented this).
+            paramsJson = BuildParametersJson();
+        }
 
         try
         {
@@ -314,6 +377,127 @@ public partial class TemplateEditorViewModel : ViewModelBase
         await RefreshStepsAsync();
     }
 
+    // ── Thread-from-text helpers ──
+
+    [RelayCommand]
+    private void BrowseThreadFile()
+    {
+        var dlg = new OpenFileDialog
+        {
+            Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*",
+            Title = "Select thread text file",
+        };
+        if (dlg.ShowDialog() == true)
+        {
+            ParamThreadFilePath = dlg.FileName;
+            try
+            {
+                // Load content straight into the paste textbox so user can tweak
+                // before saving the step.
+                ParamThreadText = File.ReadAllText(dlg.FileName);
+                PreviewThreadSplit();
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = $"Could not read file: {ex.Message}";
+            }
+        }
+    }
+
+    [RelayCommand]
+    private void PreviewThreadSplit()
+    {
+        var source = !string.IsNullOrWhiteSpace(ParamThreadText)
+            ? ParamThreadText
+            : (File.Exists(ParamThreadFilePath) ? SafeReadFile(ParamThreadFilePath) : string.Empty);
+
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            ParamThreadPreview = "(no text yet)";
+            return;
+        }
+
+        var segs = ThreadTextSplitter.Split(source, ParamMaxCharsPerSegment);
+        if (segs.Count == 0)
+        {
+            ParamThreadPreview = "(no segments produced)";
+            return;
+        }
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"{segs.Count} segments (max {ParamMaxCharsPerSegment} chars each):");
+        sb.AppendLine();
+        for (int i = 0; i < segs.Count; i++)
+        {
+            sb.AppendLine($"── [{i + 1}/{segs.Count}] ({segs[i].Length} chars) ─────────");
+            sb.AppendLine(segs[i]);
+            sb.AppendLine();
+        }
+        ParamThreadPreview = sb.ToString();
+    }
+
+    /// <summary>
+    /// Browses a .txt file and auto-generates template steps (1 CreatePost +
+    /// N−1 ReplyToOwnLastPost) with each segment pre-filled. Lets the user
+    /// edit per-segment afterwards.
+    /// </summary>
+    [RelayCommand]
+    private async Task ImportThreadFromFileAsync()
+    {
+        if (SelectedTemplate == null)
+        {
+            ErrorMessage = "Select or create a template first.";
+            return;
+        }
+
+        var dlg = new OpenFileDialog
+        {
+            Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*",
+            Title = "Import thread text file",
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        string content;
+        try
+        {
+            content = await File.ReadAllTextAsync(dlg.FileName);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Could not read file: {ex.Message}";
+            return;
+        }
+
+        var segments = ThreadTextSplitter.Split(content, ThreadTextSplitter.ThreadsMaxCharsPerPost);
+        if (segments.Count == 0)
+        {
+            ErrorMessage = "File produced zero segments.";
+            return;
+        }
+
+        // First segment → CreatePost
+        var headJson = JsonSerializer.Serialize(new Dictionary<string, object> { ["text"] = segments[0] });
+        await _templateService.AddStepAsync(SelectedTemplate.Id, ActionType.CreatePost, headJson, 3000, 8000);
+
+        // Remaining segments → ReplyToOwnLastPost (single text via `texts` array of 1)
+        for (int i = 1; i < segments.Count; i++)
+        {
+            var replyJson = JsonSerializer.Serialize(new Dictionary<string, object>
+            {
+                ["texts"] = new[] { segments[i] },
+            });
+            await _templateService.AddStepAsync(SelectedTemplate.Id, ActionType.ReplyToOwnLastPost, replyJson, 3000, 8000);
+        }
+
+        await RefreshStepsAsync();
+        StatusMessage = $"✓ Imported {segments.Count} segments from {Path.GetFileName(dlg.FileName)}.";
+    }
+
+    private static string SafeReadFile(string path)
+    {
+        try { return File.ReadAllText(path); } catch { return string.Empty; }
+    }
+
     [RelayCommand]
     private void CancelDialog()
     {
@@ -344,6 +528,12 @@ public partial class TemplateEditorViewModel : ViewModelBase
         ParamPostText = string.Empty;
         ParamKeyword = string.Empty;
         ParamInteract = false;
+        ParamThreadText = string.Empty;
+        ParamThreadFilePath = string.Empty;
+        ParamMaxCharsPerSegment = 500;
+        ParamSegmentDelayMin = 3000;
+        ParamSegmentDelayMax = 8000;
+        ParamThreadPreview = string.Empty;
     }
 
     private void LoadStepParams(string json)
@@ -368,8 +558,123 @@ public partial class TemplateEditorViewModel : ViewModelBase
                 ParamKeyword = k.GetString() ?? string.Empty;
             if (p.TryGetValue("interactWithResults", out var ir))
                 ParamInteract = ir.ValueKind == JsonValueKind.True;
+
+            // CreateThreadFromText — reuse `text` bucket for the long blob, plus
+            // dedicated fields for file / split / segment delays.
+            if (FormStepActionType == ActionType.CreateThreadFromText &&
+                p.TryGetValue("text", out var tt) && tt.ValueKind == JsonValueKind.String)
+                ParamThreadText = tt.GetString() ?? string.Empty;
+            if (p.TryGetValue("filePath", out var fp) && fp.ValueKind == JsonValueKind.String)
+                ParamThreadFilePath = fp.GetString() ?? string.Empty;
+            if (p.TryGetValue("maxCharsPerSegment", out var mc) && mc.ValueKind == JsonValueKind.Number)
+                ParamMaxCharsPerSegment = mc.GetInt32();
+            if (p.TryGetValue("segmentDelayMinMs", out var sdm) && sdm.ValueKind == JsonValueKind.Number)
+                ParamSegmentDelayMin = sdm.GetInt32();
+            if (p.TryGetValue("segmentDelayMaxMs", out var sdx) && sdx.ValueKind == JsonValueKind.Number)
+                ParamSegmentDelayMax = sdx.GetInt32();
         }
         catch { /* ignore parse errors */ }
+    }
+
+    // ── Form ↔ JSON sync ──
+
+    // Any form-side change re-builds the JSON, preserving any unknown fields
+    // the user may have added in the advanced editor.
+    partial void OnFormStepActionTypeChanged(ActionType value) => SyncFormToJson();
+    partial void OnParamCountChanged(int value) => SyncFormToJson();
+    partial void OnParamDurationSecondsChanged(int value) => SyncFormToJson();
+    partial void OnParamTextsChanged(string value) => SyncFormToJson();
+    partial void OnParamUsernameChanged(string value) => SyncFormToJson();
+    partial void OnParamPostTextChanged(string value) => SyncFormToJson();
+    partial void OnParamKeywordChanged(string value) => SyncFormToJson();
+    partial void OnParamInteractChanged(bool value) => SyncFormToJson();
+
+    // JSON-side edits validate, surface errors, and refresh the form when valid.
+    partial void OnAdvancedParamsJsonChanged(string value)
+    {
+        if (_suppressJsonToForm) return;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(value);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                AdvancedJsonError = "Top-level value must be a JSON object.";
+                return;
+            }
+            AdvancedJsonError = null;
+
+            _suppressFormToJson = true;
+            try { LoadStepParams(value); }
+            finally { _suppressFormToJson = false; }
+        }
+        catch (JsonException ex)
+        {
+            AdvancedJsonError = $"Invalid JSON: {ex.Message}";
+        }
+    }
+
+    partial void OnAdvancedJsonErrorChanged(string? value)
+    {
+        SaveStepCommand.NotifyCanExecuteChanged();
+    }
+
+    private void SyncFormToJson()
+    {
+        if (_suppressFormToJson) return;
+
+        // Merge: start from any unknown keys in the current AdvancedParamsJson,
+        // then overlay form-derived keys so the form is the source of truth for
+        // surfaced fields while extras the user added in JSON survive.
+        var merged = new Dictionary<string, object?>();
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(AdvancedParamsJson) ? "{}" : AdvancedParamsJson);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                    merged[prop.Name] = JsonElementToObject(prop.Value);
+            }
+        }
+        catch { /* if current JSON is invalid, just rebuild from scratch */ }
+
+        var fresh = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(BuildParametersJson());
+        if (fresh != null)
+        {
+            foreach (var kv in fresh)
+                merged[kv.Key] = JsonElementToObject(kv.Value);
+        }
+
+        _suppressJsonToForm = true;
+        try
+        {
+            AdvancedParamsJson = JsonSerializer.Serialize(merged, new JsonSerializerOptions { WriteIndented = true });
+            AdvancedJsonError = null;
+        }
+        finally { _suppressJsonToForm = false; }
+    }
+
+    private static object? JsonElementToObject(JsonElement el) => el.ValueKind switch
+    {
+        JsonValueKind.String => el.GetString(),
+        JsonValueKind.Number => el.TryGetInt64(out var l) ? (object)l : el.GetDouble(),
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        JsonValueKind.Null => null,
+        JsonValueKind.Array => el.EnumerateArray().Select(JsonElementToObject).ToArray(),
+        JsonValueKind.Object => el.EnumerateObject().ToDictionary(p => p.Name, p => JsonElementToObject(p.Value)),
+        _ => el.ToString(),
+    };
+
+    private static string PrettyPrintJson(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return "{}";
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch { return json; }
     }
 
     private string BuildParametersJson()
@@ -411,6 +716,20 @@ public partial class TemplateEditorViewModel : ViewModelBase
                 break;
             case ActionType.OpenRandomPost:
                 // No parameters needed — picks random post from current page
+                break;
+            case ActionType.ReplyToOwnLastPost:
+                // Random pick from pipe-separated variants (reuses the same
+                // "texts" bucket as Comment for UI consistency).
+                obj["texts"] = ParamTexts.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                break;
+            case ActionType.CreateThreadFromText:
+                if (!string.IsNullOrWhiteSpace(ParamThreadText))
+                    obj["text"] = ParamThreadText;
+                if (!string.IsNullOrWhiteSpace(ParamThreadFilePath))
+                    obj["filePath"] = ParamThreadFilePath.Trim();
+                obj["maxCharsPerSegment"] = ParamMaxCharsPerSegment;
+                obj["segmentDelayMinMs"] = ParamSegmentDelayMin;
+                obj["segmentDelayMaxMs"] = ParamSegmentDelayMax;
                 break;
         }
 

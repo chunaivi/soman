@@ -115,6 +115,8 @@ public class TaskEngine : ITaskEngine
         // Execute steps
         var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, state.Cts.Token);
         var steps = template.Steps.OrderBy(s => s.Order).ToList();
+        int failedStepCount = 0;
+        string? lastError = null;
 
         try
         {
@@ -145,8 +147,10 @@ public class TaskEngine : ITaskEngine
 
                 if (!success)
                 {
-                    // Log but continue — non-fatal
-                    await _logger.LogAsync(accountId, steps[i].ActionType, null, ActionResult.Failed, message);
+                    // Remember the step's message — the overall execution log entry
+                    // will summarise it (we only write ONE ActivityLog per run now).
+                    failedStepCount++;
+                    lastError = message;
                 }
 
                 // Delay between steps (human-like)
@@ -168,6 +172,7 @@ public class TaskEngine : ITaskEngine
         catch (Exception ex)
         {
             state.Status = Models.TaskStatus.Failed;
+            lastError = ex.Message;
             await UpdateExecutionAsync(execution.Id, state.CurrentStep, Models.TaskStatus.Failed, ex.Message);
             EmitProgress(state, state.CurrentStep, steps[Math.Min(state.CurrentStep, steps.Count) - 1], $"Error: {ex.Message}", Models.TaskStatus.Failed);
         }
@@ -175,6 +180,29 @@ public class TaskEngine : ITaskEngine
         {
             _running.TryRemove(execution.Id, out _);
             linkedCts.Dispose();
+
+            // Write ONE activity-log entry summarising the whole run. Gives the
+            // Logs page / Dashboard something to show whether the run ended in
+            // Success / Failed / Cancelled.
+            var primaryAction = steps.Count > 0 ? steps[0].ActionType : ActionType.ScrollFeed;
+            var result = state.Status switch
+            {
+                Models.TaskStatus.Completed => failedStepCount > 0 ? ActionResult.Success : ActionResult.Success,
+                Models.TaskStatus.Cancelled => ActionResult.Skipped,
+                _                           => ActionResult.Failed,
+            };
+            var details = state.Status switch
+            {
+                Models.TaskStatus.Completed when failedStepCount == 0
+                    => $"{steps.Count}/{steps.Count} steps OK",
+                Models.TaskStatus.Completed
+                    => $"{steps.Count - failedStepCount}/{steps.Count} steps OK ({failedStepCount} failed){(lastError == null ? "" : $" — {lastError}")}",
+                Models.TaskStatus.Cancelled
+                    => $"Cancelled at step {state.CurrentStep}/{steps.Count}",
+                _ => lastError ?? $"Failed at step {state.CurrentStep}/{steps.Count}",
+            };
+            try { await _logger.LogAsync(accountId, primaryAction, template.Name, result, details); }
+            catch { /* logging must never break execution */ }
         }
 
         // Return updated execution

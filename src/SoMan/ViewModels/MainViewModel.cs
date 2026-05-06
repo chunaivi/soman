@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SoMan.Services.Browser;
+using SoMan.Services.Theming;
 using System.Windows.Threading;
 
 namespace SoMan.ViewModels;
@@ -46,6 +47,7 @@ public partial class MainViewModel : ViewModelBase
     private readonly LogViewModel _logVm;
     private readonly SettingsViewModel _settingsVm;
     private readonly IResourceMonitor _resourceMonitor;
+    private readonly IThemeService _themeService;
     private readonly DispatcherTimer _resourceTimer;
 
     public MainViewModel(
@@ -56,7 +58,8 @@ public partial class MainViewModel : ViewModelBase
         SchedulerViewModel schedulerVm,
         LogViewModel logVm,
         SettingsViewModel settingsVm,
-        IResourceMonitor resourceMonitor)
+        IResourceMonitor resourceMonitor,
+        IThemeService themeService)
     {
         _dashboardVm = dashboardVm;
         _accountListVm = accountListVm;
@@ -66,7 +69,9 @@ public partial class MainViewModel : ViewModelBase
         _logVm = logVm;
         _settingsVm = settingsVm;
         _resourceMonitor = resourceMonitor;
+        _themeService = themeService;
         _currentView = dashboardVm;
+        _isDarkTheme = themeService.CurrentTheme == "Dark";
 
         _resourceMonitor.StartMonitoring();
 
@@ -96,9 +101,10 @@ public partial class MainViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void ToggleTheme()
+    private async Task ToggleThemeAsync()
     {
-        IsDarkTheme = !IsDarkTheme;
+        await _themeService.ToggleAsync();
+        IsDarkTheme = _themeService.CurrentTheme == "Dark";
     }
 
     public async Task UpdateResourceInfoAsync()

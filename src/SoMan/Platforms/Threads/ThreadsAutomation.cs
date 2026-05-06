@@ -1,9 +1,12 @@
+using System.Collections.Concurrent;
+using System.IO;
 using System.Text.Json;
 using Microsoft.Playwright;
 using SoMan.Models;
 using SoMan.Services.Browser;
 using SoMan.Services.Delay;
 using SoMan.Services.Logging;
+using SoMan.Services.Text;
 
 namespace SoMan.Platforms.Threads;
 
@@ -17,6 +20,12 @@ public class ThreadsAutomation
     private readonly IDelayService _delay;
     private readonly IActivityLogger _logger;
     private readonly ThreadsActions _actions;
+
+    // Tracks each account's most-recently-created post URL within the currently
+    // running executions. Used by ReplyToOwnLastPost to chain segments into a
+    // Threads "utas". Entries live for the lifetime of the app; each fresh
+    // CreatePost overwrites the previous URL for that account.
+    private readonly ConcurrentDictionary<int, string> _lastOwnPostUrl = new();
 
     public ThreadsAutomation(IBrowserManager browserManager, IDelayService delay, IActivityLogger logger)
     {
@@ -57,6 +66,8 @@ public class ThreadsAutomation
                 ActionType.ViewProfile => await ExecuteViewProfileAsync(page, accountId, parameters, ct),
                 ActionType.Search => await ExecuteSearchAsync(page, accountId, parameters, ct),
                 ActionType.OpenRandomPost => await ExecuteOpenRandomPostAsync(page, accountId, parameters, ct),
+                ActionType.ReplyToOwnLastPost => await ExecuteReplyToOwnLastPostAsync(page, accountId, parameters, ct),
+                ActionType.CreateThreadFromText => await ExecuteCreateThreadFromTextAsync(page, accountId, parameters, ct),
                 _ => (false, $"Unknown action type: {step.ActionType}")
             };
         }
@@ -111,38 +122,31 @@ public class ThreadsAutomation
         int count = GetInt(p, "count", 2);
         string[] texts = GetStringArray(p, "texts", new[] { "Nice!", "Great post! 🔥", "Interesting! 👍" });
 
-        // If on a post detail page, comment there directly
+        // If on a post detail page, comment there directly.
         if (page.Url.Contains("/post/"))
         {
             var rng = new Random();
             var text = texts[rng.Next(texts.Length)];
-            // Coba cari tombol reply secara global jika tidak ada article
             var posts = page.Locator(ThreadsSelectors.PostArticle);
             int total = await posts.CountAsync();
+
+            // When no <article> is rendered (e.g. the post detail uses a different
+            // container), fall back to scoping at <body>. CommentOnPostAsync will
+            // still find the global Reply button and run the same robust composer
+            // flow (real keystrokes + dialog-scoped Post button + enable wait).
+            ILocator scope = total > 0 ? posts.First : page.Locator("body");
+
             bool ok = false;
-            if (total > 0)
+            try
             {
-                ok = await _actions.CommentOnPostAsync(page, posts.First, text, ct);
+                ok = await _actions.CommentOnPostAsync(page, scope, text, ct);
             }
-            else
+            catch
             {
-                // Fallback: cari tombol reply secara global
-                var replyBtn = page.Locator(ThreadsSelectors.ReplyButton).First;
-                if (await replyBtn.CountAsync() > 0)
-                {
-                    await replyBtn.ClickAsync();
-                    await _delay.WaitAsync(1500, 3000, ct);
-                    var textArea = page.Locator(ThreadsSelectors.ReplyTextArea).Last;
-                    await textArea.WaitForAsync(new() { Timeout = ThreadsConstants.ElementWaitTimeout });
-                    await textArea.FillAsync(text);
-                    await _delay.WaitAsync(1000, 2000, ct);
-                    var postBtn = page.Locator(ThreadsSelectors.ReplyPostButton).First;
-                    await postBtn.ClickAsync();
-                    await _delay.WaitAsync(2000, 4000, ct);
-                    ok = true;
-                }
+                ok = false;
             }
-            await _logger.LogAsync(accountId, ActionType.Comment, page.Url, 
+
+            await _logger.LogAsync(accountId, ActionType.Comment, page.Url,
                 ok ? ActionResult.Success : ActionResult.Failed, ok ? $"Commented: {text}" : "Failed to comment");
             return (ok, ok ? "Commented on opened post." : "Failed to comment.");
         }
@@ -201,10 +205,158 @@ public class ThreadsAutomation
         if (string.IsNullOrWhiteSpace(text))
             return (false, "Post text is required.");
 
-        bool ok = await _actions.CreatePostAsync(page, text, ct);
-        await _logger.LogAsync(accountId, ActionType.CreatePost, null,
-            ok ? ActionResult.Success : ActionResult.Failed, ok ? $"Posted: {text[..Math.Min(50, text.Length)]}" : "Failed to post");
+        var postUrl = await _actions.CreatePostAsync(page, text, ct);
+        bool ok = postUrl != null;
+
+        if (ok)
+        {
+            // Remember this URL so a later ReplyToOwnLastPost step can chain to it.
+            _lastOwnPostUrl[accountId] = postUrl!;
+        }
+
+        await _logger.LogAsync(accountId, ActionType.CreatePost, postUrl,
+            ok ? ActionResult.Success : ActionResult.Failed,
+            ok ? $"Posted: {text[..Math.Min(50, text.Length)]}" : "Failed to post");
+
         return (ok, ok ? "Post created." : "Failed to create post.");
+    }
+
+    private async Task<(bool, string)> ExecuteReplyToOwnLastPostAsync(
+        IPage page, int accountId, Dictionary<string, JsonElement> p, CancellationToken ct)
+    {
+        if (!_lastOwnPostUrl.TryGetValue(accountId, out var postUrl) || string.IsNullOrWhiteSpace(postUrl))
+            return (false, "No previous CreatePost in this run — nothing to reply to.");
+
+        string[] texts = GetStringArray(p, "texts", Array.Empty<string>());
+        string? single = GetString(p, "text", null);
+        if (texts.Length == 0 && !string.IsNullOrWhiteSpace(single))
+            texts = new[] { single! };
+
+        if (texts.Length == 0)
+            return (false, "Reply text is required (provide `text` or `texts`).");
+
+        var rng = new Random();
+        string replyText = texts[rng.Next(texts.Length)];
+
+        // Navigate to the target post
+        if (!page.Url.TrimEnd('/').Equals(postUrl.TrimEnd('/')))
+        {
+            await page.GotoAsync(postUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = ThreadsConstants.PageLoadTimeout });
+            await _delay.WaitAsync(1500, 3000, ct);
+        }
+
+        // Use the existing reply flow, scoped to the first article on the post page
+        // (the target post itself). This uses the same nested-reply mechanism
+        // that Comment uses for other users' posts.
+        var target = page.Locator(ThreadsSelectors.PostArticle).First;
+        if (await target.CountAsync() == 0)
+            return (false, "Target post article not found after navigation.");
+
+        try
+        {
+            bool ok = await _actions.CommentOnPostAsync(page, target, replyText, ct);
+            await _logger.LogAsync(accountId, ActionType.ReplyToOwnLastPost, postUrl,
+                ok ? ActionResult.Success : ActionResult.Failed,
+                ok ? $"Replied: {replyText[..Math.Min(50, replyText.Length)]}" : "Reply submit failed");
+            return (ok, ok ? "Reply posted to own last post." : "Reply submission failed.");
+        }
+        catch (Exception ex)
+        {
+            await _logger.LogAsync(accountId, ActionType.ReplyToOwnLastPost, postUrl, ActionResult.Failed, ex.Message);
+            return (false, $"Reply failed: {ex.Message}");
+        }
+    }
+
+    private async Task<(bool, string)> ExecuteCreateThreadFromTextAsync(
+        IPage page, int accountId, Dictionary<string, JsonElement> p, CancellationToken ct)
+    {
+        // Resolve text source: pasted text takes priority, fall back to file path.
+        string? text = GetString(p, "text", null);
+        string? filePath = GetString(p, "filePath", null);
+
+        if (string.IsNullOrWhiteSpace(text) && !string.IsNullOrWhiteSpace(filePath))
+        {
+            try
+            {
+                if (!File.Exists(filePath))
+                    return (false, $"File not found: {filePath}");
+                text = await File.ReadAllTextAsync(filePath, ct);
+            }
+            catch (Exception ex)
+            {
+                return (false, $"Failed to read file: {ex.Message}");
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+            return (false, "Thread text is required (paste `text` or provide `filePath`).");
+
+        int maxChars = GetInt(p, "maxCharsPerSegment", ThreadTextSplitter.ThreadsMaxCharsPerPost);
+        int delayMin = GetInt(p, "segmentDelayMinMs", 3000);
+        int delayMax = GetInt(p, "segmentDelayMaxMs", 8000);
+        if (delayMax < delayMin) delayMax = delayMin;
+
+        var segments = ThreadTextSplitter.Split(text, maxChars);
+        if (segments.Count == 0)
+            return (false, "Text produced zero segments after split.");
+
+        // Segment 1 → CreatePost (reuses the URL-capture logic so later
+        // segments can reply to it).
+        var headUrl = await _actions.CreatePostAsync(page, segments[0], ct);
+        if (headUrl == null)
+        {
+            await _logger.LogAsync(accountId, ActionType.CreateThreadFromText, null,
+                ActionResult.Failed, "Head post failed");
+            return (false, "Failed to create head post of thread.");
+        }
+
+        _lastOwnPostUrl[accountId] = headUrl;
+        int succeeded = 1;
+
+        // Segments 2..N → reply to head (Threads renders chained self-replies
+        // nested under the head post).
+        for (int i = 1; i < segments.Count && !ct.IsCancellationRequested; i++)
+        {
+            await _delay.WaitAsync(delayMin, delayMax, ct);
+
+            // Make sure we're on the head post before each reply — Threads'
+            // composer resets state between replies.
+            if (!page.Url.TrimEnd('/').Equals(headUrl.TrimEnd('/')))
+            {
+                await page.GotoAsync(headUrl, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = ThreadsConstants.PageLoadTimeout });
+                await _delay.WaitAsync(1500, 3000, ct);
+            }
+
+            var target = page.Locator(ThreadsSelectors.PostArticle).First;
+            if (await target.CountAsync() == 0)
+            {
+                await _logger.LogAsync(accountId, ActionType.CreateThreadFromText, headUrl,
+                    ActionResult.Failed, $"Segment {i + 1}/{segments.Count}: head article not found");
+                return (false, $"Thread segment {i + 1}/{segments.Count} failed — head article not found.");
+            }
+
+            try
+            {
+                bool ok = await _actions.CommentOnPostAsync(page, target, segments[i], ct);
+                if (!ok)
+                {
+                    await _logger.LogAsync(accountId, ActionType.CreateThreadFromText, headUrl,
+                        ActionResult.Failed, $"Segment {i + 1}/{segments.Count}: reply submit failed");
+                    return (false, $"Thread segment {i + 1}/{segments.Count} failed to submit.");
+                }
+                succeeded++;
+            }
+            catch (Exception ex)
+            {
+                await _logger.LogAsync(accountId, ActionType.CreateThreadFromText, headUrl,
+                    ActionResult.Failed, $"Segment {i + 1}/{segments.Count}: {ex.Message}");
+                return (false, $"Thread segment {i + 1}/{segments.Count} error: {ex.Message}");
+            }
+        }
+
+        await _logger.LogAsync(accountId, ActionType.CreateThreadFromText, headUrl,
+            ActionResult.Success, $"Posted thread: {succeeded}/{segments.Count} segments");
+        return (true, $"Thread posted: {succeeded}/{segments.Count} segments.");
     }
 
     private async Task<(bool, string)> ExecuteRepostAsync(
@@ -252,7 +404,7 @@ public class ThreadsAutomation
             await _delay.WaitAsync(2000, 4000, ct);
         }
 
-        await _actions.WaitForFeedLoadAsync(page, ct);
+        // ClickRandomPostAsync waits for the feed itself, so no outer wait here.
         bool clicked = await _actions.ClickRandomPostAsync(page, ct);
 
         await _logger.LogAsync(accountId, ActionType.OpenRandomPost, page.Url,
