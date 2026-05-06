@@ -68,6 +68,7 @@ public class ThreadsAutomation
                 ActionType.OpenRandomPost => await ExecuteOpenRandomPostAsync(page, accountId, parameters, ct),
                 ActionType.ReplyToOwnLastPost => await ExecuteReplyToOwnLastPostAsync(page, accountId, parameters, ct),
                 ActionType.CreateThreadFromText => await ExecuteCreateThreadFromTextAsync(page, accountId, parameters, ct),
+                ActionType.Quote => await ExecuteQuoteAsync(page, accountId, parameters, ct),
                 _ => (false, $"Unknown action type: {step.ActionType}")
             };
         }
@@ -369,6 +370,40 @@ public class ThreadsAutomation
 
         await _logger.LogAsync(accountId, ActionType.Repost, "feed", ActionResult.Success, $"Reposted {reposted}/{count} posts");
         return (true, $"Reposted {reposted}/{count} posts.");
+    }
+
+    private async Task<(bool, string)> ExecuteQuoteAsync(
+        IPage page, int accountId, Dictionary<string, JsonElement> p, CancellationToken ct)
+    {
+        // Required: target post URL. Users paste this from Threads (desktop or mobile share).
+        string? url = GetString(p, "url", null);
+        if (string.IsNullOrWhiteSpace(url))
+            return (false, "Target post URL is required for Quote.");
+
+        // Optional variants — pick one at random each run. Falls back to a single `text`.
+        string[] texts = GetStringArray(p, "texts", Array.Empty<string>());
+        string? single = GetString(p, "text", null);
+        if (texts.Length == 0 && !string.IsNullOrWhiteSpace(single))
+            texts = new[] { single! };
+        if (texts.Length == 0)
+            return (false, "Quote commentary is required (provide `text` or `texts`).");
+
+        var rng = new Random();
+        string quoteText = texts[rng.Next(texts.Length)];
+
+        try
+        {
+            bool ok = await _actions.QuotePostAsync(page, url!, quoteText, ct);
+            await _logger.LogAsync(accountId, ActionType.Quote, url,
+                ok ? ActionResult.Success : ActionResult.Failed,
+                ok ? $"Quoted: {quoteText[..Math.Min(50, quoteText.Length)]}" : "Quote submit failed");
+            return (ok, ok ? "Quote posted." : "Quote submission failed.");
+        }
+        catch (Exception ex)
+        {
+            await _logger.LogAsync(accountId, ActionType.Quote, url, ActionResult.Failed, ex.Message);
+            return (false, $"Quote failed: {ex.Message}");
+        }
     }
 
     private async Task<(bool, string)> ExecuteViewProfileAsync(

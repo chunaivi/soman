@@ -18,7 +18,11 @@ public enum ActionType
     // Takes one large text blob (pasted or loaded from a .txt file) and
     // automatically splits it into 500-char-friendly chunks, posts the first
     // as a new post and the rest as self-replies — all in a single step.
-    CreateThreadFromText
+    CreateThreadFromText,
+    // Quotes an existing post (Repost → Quote menu) and adds the user's own
+    // commentary on top — the classic affiliate pattern for amplifying a
+    // testimonial/review with your own recommendation.
+    Quote
 }
 
 public class ActionTemplate

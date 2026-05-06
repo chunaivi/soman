@@ -256,7 +256,7 @@
                         </TextBox.Style>
                     </TextBox>
 
-                    <!-- Texts (Comment, ReplyToOwnLastPost) -->
+                    <!-- Texts (Comment, ReplyToOwnLastPost, Quote) -->
                     <TextBox materialDesign:HintAssist.Hint="Texts (separate with |, one is picked at random)"
                              Text="{Binding ParamTexts, UpdateSourceTrigger=PropertyChanged}"
                              Margin="0,0,0,12"
@@ -269,6 +269,25 @@
                                         <Setter Property="Visibility" Value="Visible"/>
                                     </DataTrigger>
                                     <DataTrigger Binding="{Binding FormStepActionType}" Value="ReplyToOwnLastPost">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="Quote">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBox.Style>
+                    </TextBox>
+
+                    <!-- URL (Quote) -->
+                    <TextBox materialDesign:HintAssist.Hint="Target post URL (https://www.threads.net/@user/post/...)"
+                             Text="{Binding ParamQuoteUrl, UpdateSourceTrigger=PropertyChanged}"
+                             Margin="0,0,0,12">
+                        <TextBox.Style>
+                            <Style TargetType="TextBox" BasedOn="{StaticResource MaterialDesignOutlinedTextBox}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FormStepActionType}" Value="Quote">
                                         <Setter Property="Visibility" Value="Visible"/>
                                     </DataTrigger>
                                 </Style.Triggers>

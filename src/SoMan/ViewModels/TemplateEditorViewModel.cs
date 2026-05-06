@@ -139,6 +139,10 @@ public partial class TemplateEditorViewModel : ViewModelBase
     [ObservableProperty]
     private string _paramThreadPreview = string.Empty;
 
+    // Quote — target post URL; commentary variants reuse ParamTexts (pipe-separated).
+    [ObservableProperty]
+    private string _paramQuoteUrl = string.Empty;
+
     [ObservableProperty]
     private string _statusMessage = string.Empty;
 
@@ -534,6 +538,7 @@ public partial class TemplateEditorViewModel : ViewModelBase
         ParamSegmentDelayMin = 3000;
         ParamSegmentDelayMax = 8000;
         ParamThreadPreview = string.Empty;
+        ParamQuoteUrl = string.Empty;
     }
 
     private void LoadStepParams(string json)
@@ -572,6 +577,10 @@ public partial class TemplateEditorViewModel : ViewModelBase
                 ParamSegmentDelayMin = sdm.GetInt32();
             if (p.TryGetValue("segmentDelayMaxMs", out var sdx) && sdx.ValueKind == JsonValueKind.Number)
                 ParamSegmentDelayMax = sdx.GetInt32();
+
+            // Quote — target URL. Commentary texts are already loaded above via the shared `texts` bucket.
+            if (p.TryGetValue("url", out var uu) && uu.ValueKind == JsonValueKind.String)
+                ParamQuoteUrl = uu.GetString() ?? string.Empty;
         }
         catch { /* ignore parse errors */ }
     }
@@ -587,6 +596,7 @@ public partial class TemplateEditorViewModel : ViewModelBase
     partial void OnParamUsernameChanged(string value) => SyncFormToJson();
     partial void OnParamPostTextChanged(string value) => SyncFormToJson();
     partial void OnParamKeywordChanged(string value) => SyncFormToJson();
+    partial void OnParamQuoteUrlChanged(string value) => SyncFormToJson();
     partial void OnParamInteractChanged(bool value) => SyncFormToJson();
 
     // JSON-side edits validate, surface errors, and refresh the form when valid.
@@ -730,6 +740,10 @@ public partial class TemplateEditorViewModel : ViewModelBase
                 obj["maxCharsPerSegment"] = ParamMaxCharsPerSegment;
                 obj["segmentDelayMinMs"] = ParamSegmentDelayMin;
                 obj["segmentDelayMaxMs"] = ParamSegmentDelayMax;
+                break;
+            case ActionType.Quote:
+                obj["url"] = ParamQuoteUrl.Trim();
+                obj["texts"] = ParamTexts.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 break;
         }
 
