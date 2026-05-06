@@ -139,6 +139,11 @@ public partial class TemplateEditorViewModel : ViewModelBase
     [ObservableProperty]
     private string _paramThreadPreview = string.Empty;
 
+    // AddToThread — URL of an existing thread's head post (or any segment)
+    // to append a reply to. Commentary variants reuse ParamTexts.
+    [ObservableProperty]
+    private string _paramTargetUrl = string.Empty;
+
     [ObservableProperty]
     private string _statusMessage = string.Empty;
 
@@ -534,6 +539,7 @@ public partial class TemplateEditorViewModel : ViewModelBase
         ParamSegmentDelayMin = 3000;
         ParamSegmentDelayMax = 8000;
         ParamThreadPreview = string.Empty;
+        ParamTargetUrl = string.Empty;
     }
 
     private void LoadStepParams(string json)
@@ -572,6 +578,11 @@ public partial class TemplateEditorViewModel : ViewModelBase
                 ParamSegmentDelayMin = sdm.GetInt32();
             if (p.TryGetValue("segmentDelayMaxMs", out var sdx) && sdx.ValueKind == JsonValueKind.Number)
                 ParamSegmentDelayMax = sdx.GetInt32();
+
+            // AddToThread — URL of the target post. Texts are already loaded
+            // above via the shared `texts` bucket.
+            if (p.TryGetValue("url", out var uu) && uu.ValueKind == JsonValueKind.String)
+                ParamTargetUrl = uu.GetString() ?? string.Empty;
         }
         catch { /* ignore parse errors */ }
     }
@@ -587,6 +598,7 @@ public partial class TemplateEditorViewModel : ViewModelBase
     partial void OnParamUsernameChanged(string value) => SyncFormToJson();
     partial void OnParamPostTextChanged(string value) => SyncFormToJson();
     partial void OnParamKeywordChanged(string value) => SyncFormToJson();
+    partial void OnParamTargetUrlChanged(string value) => SyncFormToJson();
     partial void OnParamInteractChanged(bool value) => SyncFormToJson();
 
     // JSON-side edits validate, surface errors, and refresh the form when valid.
@@ -730,6 +742,10 @@ public partial class TemplateEditorViewModel : ViewModelBase
                 obj["maxCharsPerSegment"] = ParamMaxCharsPerSegment;
                 obj["segmentDelayMinMs"] = ParamSegmentDelayMin;
                 obj["segmentDelayMaxMs"] = ParamSegmentDelayMax;
+                break;
+            case ActionType.AddToThread:
+                obj["url"] = ParamTargetUrl.Trim();
+                obj["texts"] = ParamTexts.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 break;
         }
 

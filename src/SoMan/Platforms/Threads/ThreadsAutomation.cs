@@ -68,6 +68,7 @@ public class ThreadsAutomation
                 ActionType.OpenRandomPost => await ExecuteOpenRandomPostAsync(page, accountId, parameters, ct),
                 ActionType.ReplyToOwnLastPost => await ExecuteReplyToOwnLastPostAsync(page, accountId, parameters, ct),
                 ActionType.CreateThreadFromText => await ExecuteCreateThreadFromTextAsync(page, accountId, parameters, ct),
+                ActionType.AddToThread => await ExecuteAddToThreadAsync(page, accountId, parameters, ct),
                 _ => (false, $"Unknown action type: {step.ActionType}")
             };
         }
@@ -264,6 +265,54 @@ public class ThreadsAutomation
         {
             await _logger.LogAsync(accountId, ActionType.ReplyToOwnLastPost, postUrl, ActionResult.Failed, ex.Message);
             return (false, $"Reply failed: {ex.Message}");
+        }
+    }
+
+    private async Task<(bool, string)> ExecuteAddToThreadAsync(
+        IPage page, int accountId, Dictionary<string, JsonElement> p, CancellationToken ct)
+    {
+        // Required: URL of the post to append a reply to (head of an existing
+        // thread, or any segment). User pastes this — can be our own thread
+        // (re-engage followers) or someone else's (join the conversation).
+        string? url = GetString(p, "url", null);
+        if (string.IsNullOrWhiteSpace(url))
+            return (false, "Target thread URL is required for AddToThread.");
+
+        string[] texts = GetStringArray(p, "texts", Array.Empty<string>());
+        string? single = GetString(p, "text", null);
+        if (texts.Length == 0 && !string.IsNullOrWhiteSpace(single))
+            texts = new[] { single! };
+        if (texts.Length == 0)
+            return (false, "Reply text is required (provide `text` or `texts`).");
+
+        var rng = new Random();
+        string replyText = texts[rng.Next(texts.Length)];
+
+        // Navigate to the target post if not already there.
+        if (!page.Url.TrimEnd('/').Equals(url!.TrimEnd('/')))
+        {
+            await page.GotoAsync(url!, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = ThreadsConstants.PageLoadTimeout });
+            await _delay.WaitAsync(1500, 3000, ct);
+        }
+
+        // Reply to the first article on the page (that's the permalinked post);
+        // reuses the verified nested-reply flow that Comment uses.
+        var target = page.Locator(ThreadsSelectors.PostArticle).First;
+        if (await target.CountAsync() == 0)
+            return (false, "Target post article not found after navigation.");
+
+        try
+        {
+            bool ok = await _actions.CommentOnPostAsync(page, target, replyText, ct);
+            await _logger.LogAsync(accountId, ActionType.AddToThread, url,
+                ok ? ActionResult.Success : ActionResult.Failed,
+                ok ? $"Added to thread: {replyText[..Math.Min(50, replyText.Length)]}" : "AddToThread submit failed");
+            return (ok, ok ? "Added to existing thread." : "AddToThread submission failed.");
+        }
+        catch (Exception ex)
+        {
+            await _logger.LogAsync(accountId, ActionType.AddToThread, url, ActionResult.Failed, ex.Message);
+            return (false, $"AddToThread failed: {ex.Message}");
         }
     }
 
